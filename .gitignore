@@ -1,0 +1,5 @@
+bin/
+.codexrun/
+*.exe
+.DS_Store
+

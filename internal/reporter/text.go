@@ -1,0 +1,165 @@
+package reporter
+
+import (
+	"fmt"
+	"io"
+	"os"
+	"strings"
+	"time"
+
+	"github.com/ppiankov/codexrun/internal/task"
+)
+
+const (
+	colorReset  = "\033[0m"
+	colorGreen  = "\033[32m"
+	colorRed    = "\033[31m"
+	colorYellow = "\033[33m"
+	colorCyan   = "\033[36m"
+	colorDim    = "\033[2m"
+)
+
+// TextReporter writes human-readable output to a writer.
+type TextReporter struct {
+	w     io.Writer
+	color bool
+}
+
+// NewTextReporter creates a text reporter.
+// If w is nil, defaults to os.Stdout.
+// color enables ANSI codes.
+func NewTextReporter(w io.Writer, color bool) *TextReporter {
+	if w == nil {
+		w = os.Stdout
+	}
+	return &TextReporter{w: w, color: color}
+}
+
+// PrintHeader writes the initial banner.
+func (r *TextReporter) PrintHeader(totalTasks, workers int) {
+	fmt.Fprintf(r.w, "codexrun — %d tasks, %d workers\n\n", totalTasks, workers)
+}
+
+// PrintStatus writes a snapshot of all task states.
+func (r *TextReporter) PrintStatus(graph *task.Graph, results map[string]*task.TaskResult) {
+	var running, completed, failed, skipped, pending []*task.TaskResult
+
+	for _, id := range graph.Order() {
+		res := results[id]
+		if res == nil {
+			continue
+		}
+		switch res.State {
+		case task.StateRunning:
+			running = append(running, res)
+		case task.StateCompleted:
+			completed = append(completed, res)
+		case task.StateFailed:
+			failed = append(failed, res)
+		case task.StateSkipped:
+			skipped = append(skipped, res)
+		default:
+			pending = append(pending, res)
+		}
+	}
+
+	total := len(results)
+
+	r.printSection("RUNNING", colorCyan, running, total, graph, func(res *task.TaskResult) string {
+		elapsed := time.Since(res.StartedAt).Truncate(time.Second)
+		t := graph.Task(res.TaskID)
+		title := ""
+		if t != nil {
+			title = t.Title
+		}
+		return fmt.Sprintf("    %-25s %-35s %s", res.TaskID, title, elapsed)
+	})
+
+	r.printSection("COMPLETED", colorGreen, completed, total, graph, func(res *task.TaskResult) string {
+		t := graph.Task(res.TaskID)
+		title := ""
+		if t != nil {
+			title = t.Title
+		}
+		dur := res.Duration.Truncate(time.Second)
+		return fmt.Sprintf("    %-25s %-35s %s  ✓", res.TaskID, title, dur)
+	})
+
+	r.printSection("FAILED", colorRed, failed, total, graph, func(res *task.TaskResult) string {
+		t := graph.Task(res.TaskID)
+		title := ""
+		if t != nil {
+			title = t.Title
+		}
+		dur := res.Duration.Truncate(time.Second)
+		return fmt.Sprintf("    %-25s %-35s %s  ✗ %s", res.TaskID, title, dur, res.Error)
+	})
+
+	if len(skipped) > 0 {
+		fmt.Fprintf(r.w, "  %sSKIPPED  [%d/%d]%s\n", r.c(colorYellow), len(skipped), total, r.c(colorReset))
+		for _, res := range skipped {
+			fmt.Fprintf(r.w, "    %s%-25s%s  (%s)\n", r.c(colorDim), res.TaskID, r.c(colorReset), res.Error)
+		}
+		fmt.Fprintln(r.w)
+	}
+
+	if len(pending) > 0 {
+		fmt.Fprintf(r.w, "  %sBLOCKED  [%d/%d]%s\n", r.c(colorDim), len(pending), total, r.c(colorReset))
+		for _, res := range pending {
+			t := graph.Task(res.TaskID)
+			dep := ""
+			if t != nil && t.DependsOn != "" {
+				dep = fmt.Sprintf("  (waiting: %s)", t.DependsOn)
+			}
+			fmt.Fprintf(r.w, "    %s%-25s%s%s\n", r.c(colorDim), res.TaskID, dep, r.c(colorReset))
+		}
+		fmt.Fprintln(r.w)
+	}
+}
+
+// PrintSummary writes the final summary line.
+func (r *TextReporter) PrintSummary(report *task.RunReport) {
+	fmt.Fprintf(r.w, "\n%s--- Summary ---%s\n", r.c(colorCyan), r.c(colorReset))
+	fmt.Fprintf(r.w, "Total: %d  ", report.TotalTasks)
+	fmt.Fprintf(r.w, "%sCompleted: %d%s  ", r.c(colorGreen), report.Completed, r.c(colorReset))
+	fmt.Fprintf(r.w, "%sFailed: %d%s  ", r.c(colorRed), report.Failed, r.c(colorReset))
+	fmt.Fprintf(r.w, "%sSkipped: %d%s  ", r.c(colorYellow), report.Skipped, r.c(colorReset))
+	fmt.Fprintf(r.w, "Duration: %s\n", report.TotalDuration.Truncate(time.Second))
+}
+
+// PrintDryRun writes the execution plan without running anything.
+func (r *TextReporter) PrintDryRun(graph *task.Graph, reposDir string) {
+	fmt.Fprint(r.w, "Execution plan (dry-run):\n\n")
+
+	for i, id := range graph.Order() {
+		t := graph.Task(id)
+		dep := ""
+		if t.DependsOn != "" {
+			dep = fmt.Sprintf(" (after %s)", t.DependsOn)
+		}
+		fmt.Fprintf(r.w, "  %d. [P%d] %s — %s%s\n", i+1, t.Priority, id, t.Title, dep)
+		fmt.Fprintf(r.w, "     repo: %s\n", t.Repo)
+		// truncate prompt to first 100 chars
+		prompt := t.Prompt
+		if len(prompt) > 100 {
+			prompt = prompt[:100] + "..."
+		}
+		prompt = strings.ReplaceAll(prompt, "\n", " ")
+		fmt.Fprintf(r.w, "     prompt: %s\n\n", prompt)
+	}
+}
+
+func (r *TextReporter) printSection(label, color string, items []*task.TaskResult, total int, graph *task.Graph, formatter func(*task.TaskResult) string) {
+	fmt.Fprintf(r.w, "  %s%s  [%d/%d]%s\n", r.c(color), label, len(items), total, r.c(colorReset))
+	for _, res := range items {
+		fmt.Fprintln(r.w, formatter(res))
+	}
+	fmt.Fprintln(r.w)
+}
+
+func (r *TextReporter) c(code string) string {
+	if !r.color {
+		return ""
+	}
+	return code
+}
