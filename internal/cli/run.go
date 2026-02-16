@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log/slog"
 	"os"
+	"os/exec"
 	"os/signal"
 	"path/filepath"
 	"strings"
@@ -53,7 +54,7 @@ func newRunCmd() *cobra.Command {
 			if !cmd.Flags().Changed("verify") && cfg.Verify {
 				verify = cfg.Verify
 			}
-			return runTasks(tasksFile, workers, verify, reposDir, filter, dryRun, maxRuntime, failFast)
+			return runTasks(tasksFile, workers, verify, reposDir, filter, dryRun, maxRuntime, failFast, cfg.PostRun)
 		},
 	}
 
@@ -69,7 +70,7 @@ func newRunCmd() *cobra.Command {
 	return cmd
 }
 
-func runTasks(tasksFile string, workers int, verify bool, reposDir, filter string, dryRun bool, maxRuntime time.Duration, failFast bool) error {
+func runTasks(tasksFile string, workers int, verify bool, reposDir, filter string, dryRun bool, maxRuntime time.Duration, failFast bool, postRun string) error {
 	// load tasks
 	tf, err := config.Load(tasksFile)
 	if err != nil {
@@ -126,6 +127,7 @@ func runTasks(tasksFile string, workers int, verify bool, reposDir, filter strin
 		filter:     filter,
 		maxRuntime: maxRuntime,
 		failFast:   failFast,
+		postRun:    postRun,
 	})
 	if err != nil {
 		return err
@@ -161,6 +163,7 @@ type execRunConfig struct {
 	filter     string
 	maxRuntime time.Duration
 	failFast   bool
+	postRun    string // shell command to run after report is written
 }
 
 // execRunResult wraps the report and run directory.
@@ -232,13 +235,24 @@ func executeRun(cfg execRunConfig) (*execRunResult, error) {
 	}
 
 	execFn := func(ctx context.Context, t *task.Task, repoDir, outputDir string) *task.TaskResult {
+		if err := runner.Acquire(repoDir, t.ID); err != nil {
+			return &task.TaskResult{
+				TaskID:  t.ID,
+				State:   task.StateFailed,
+				Error:   fmt.Sprintf("acquire lock: %v", err),
+				EndedAt: time.Now(),
+			}
+		}
+		defer runner.Release(repoDir)
+
 		cascade := resolveRunnerCascade(t, defaultRunner, tf.DefaultFallbacks)
 		return RunWithCascade(ctx, t, repoDir, outputDir, runners, cascade, cfg.maxRuntime, blacklist)
 	}
 
 	// run scheduler
 	start := time.Now()
-	sched := task.NewScheduler(cfg.graph, task.SchedulerConfig{
+	var sched *task.Scheduler
+	sched = task.NewScheduler(cfg.graph, task.SchedulerConfig{
 		Workers:  cfg.workers,
 		ReposDir: cfg.reposDir,
 		RunDir:   runDir,
@@ -246,6 +260,7 @@ func executeRun(cfg execRunConfig) (*execRunResult, error) {
 		FailFast: cfg.failFast,
 		OnUpdate: func(id string, result *task.TaskResult) {
 			slog.Debug("task update", "task", id, "state", result.State)
+			writeStatusFile(len(cfg.tasks), sched.Results())
 			if reviewPool != nil && result.State == task.StateCompleted {
 				t := cfg.graph.Task(id)
 				if t != nil {
@@ -269,6 +284,7 @@ func executeRun(cfg execRunConfig) (*execRunResult, error) {
 
 	results := sched.Run(ctx)
 	totalDuration := time.Since(start)
+	removeStatusFile()
 
 	if live != nil {
 		live.Stop()
@@ -294,6 +310,19 @@ func executeRun(cfg execRunConfig) (*execRunResult, error) {
 	sarifPath := filepath.Join(runDir, "report.sarif")
 	if err := reporter.WriteSARIFReport(report, cfg.graph, sarifPath); err != nil {
 		slog.Warn("failed to write sarif report", "error", err)
+	}
+
+	// run post_run hook if configured
+	if cfg.postRun != "" {
+		absRunDir, _ := filepath.Abs(runDir)
+		hookCmd := exec.CommandContext(ctx, "sh", "-c", cfg.postRun)
+		hookCmd.Env = append(os.Environ(), "RUNFORGE_RUN_DIR="+absRunDir)
+		hookCmd.Stdout = os.Stdout
+		hookCmd.Stderr = os.Stderr
+		slog.Info("running post_run hook", "command", cfg.postRun)
+		if err := hookCmd.Run(); err != nil {
+			slog.Warn("post_run hook failed", "error", err)
+		}
 	}
 
 	return &execRunResult{report: report, runDir: runDir}, nil
@@ -403,4 +432,38 @@ func isTerminal() bool {
 		return false
 	}
 	return fi.Mode()&os.ModeCharDevice != 0
+}
+
+const statusFilePath = "/tmp/runforge-status"
+
+// writeStatusFile writes a one-line status to /tmp/runforge-status for external consumers (e.g. statusline).
+func writeStatusFile(total int, results map[string]*task.TaskResult) {
+	var running, completed, failed, rateLimited int
+	for _, r := range results {
+		switch r.State {
+		case task.StateRunning:
+			running++
+		case task.StateCompleted:
+			completed++
+		case task.StateFailed:
+			failed++
+		case task.StateRateLimited:
+			rateLimited++
+		}
+	}
+	line := fmt.Sprintf("runforge: %d/%d done", completed, total)
+	if running > 0 {
+		line += fmt.Sprintf(", %d running", running)
+	}
+	if failed > 0 {
+		line += fmt.Sprintf(", %d failed", failed)
+	}
+	if rateLimited > 0 {
+		line += fmt.Sprintf(", %d rate-limited", rateLimited)
+	}
+	_ = os.WriteFile(statusFilePath, []byte(line+"\n"), 0o644)
+}
+
+func removeStatusFile() {
+	_ = os.Remove(statusFilePath)
 }
