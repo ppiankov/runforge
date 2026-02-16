@@ -121,7 +121,7 @@ func generateTasks(reposDir, output, owner, filterRepo, defaultRunner string) er
 			if wo.DependsOn != "" {
 				depID := generate.TaskID(repoName, wo.DependsOn)
 				if _, ok := includedIDs[depID]; ok {
-					t.DependsOn = depID
+					t.DependsOn = []string{depID}
 				} else {
 					slog.Debug("dropping satisfied dependency", "task", t.ID, "dep", depID)
 				}

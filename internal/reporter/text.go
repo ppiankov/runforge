@@ -108,8 +108,8 @@ func (r *TextReporter) PrintStatus(graph *task.Graph, results map[string]*task.T
 		for _, res := range pending {
 			t := graph.Task(res.TaskID)
 			dep := ""
-			if t != nil && t.DependsOn != "" {
-				dep = fmt.Sprintf("  (waiting: %s)", t.DependsOn)
+			if t != nil && len(t.DependsOn) > 0 {
+				dep = fmt.Sprintf("  (waiting: %s)", strings.Join(t.DependsOn, ", "))
 			}
 			fmt.Fprintf(r.w, "    %s%-25s%s%s\n", r.c(colorDim), res.TaskID, dep, r.c(colorReset))
 		}
@@ -134,8 +134,8 @@ func (r *TextReporter) PrintDryRun(graph *task.Graph, reposDir string) {
 	for i, id := range graph.Order() {
 		t := graph.Task(id)
 		dep := ""
-		if t.DependsOn != "" {
-			dep = fmt.Sprintf(" (after %s)", t.DependsOn)
+		if len(t.DependsOn) > 0 {
+			dep = fmt.Sprintf(" (after %s)", strings.Join(t.DependsOn, ", "))
 		}
 		fmt.Fprintf(r.w, "  %d. [P%d] %s — %s%s\n", i+1, t.Priority, id, t.Title, dep)
 		fmt.Fprintf(r.w, "     repo: %s\n", t.Repo)

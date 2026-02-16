@@ -29,7 +29,7 @@ func TestTextReporter_PrintHeader(t *testing.T) {
 func TestTextReporter_PrintDryRun(t *testing.T) {
 	tasks := []task.Task{
 		{ID: "t1", Repo: "org/r", Priority: 1, Title: "First", Prompt: "do first thing"},
-		{ID: "t2", Repo: "org/r", Priority: 2, DependsOn: "t1", Title: "Second", Prompt: "do second thing"},
+		{ID: "t2", Repo: "org/r", Priority: 2, DependsOn: []string{"t1"}, Title: "Second", Prompt: "do second thing"},
 	}
 
 	g, err := task.BuildGraph(tasks)

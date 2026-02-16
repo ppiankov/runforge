@@ -52,9 +52,9 @@ func validate(tf *task.TaskFile) error {
 	}
 
 	for _, t := range tf.Tasks {
-		if t.DependsOn != "" {
-			if _, ok := ids[t.DependsOn]; !ok {
-				return fmt.Errorf("task %q depends on unknown task %q", t.ID, t.DependsOn)
+		for _, dep := range t.DependsOn {
+			if _, ok := ids[dep]; !ok {
+				return fmt.Errorf("task %q depends on unknown task %q", t.ID, dep)
 			}
 		}
 	}

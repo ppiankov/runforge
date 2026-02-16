@@ -3,6 +3,7 @@ package config
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/ppiankov/runforge/internal/task"
@@ -31,8 +32,8 @@ func TestLoad_ValidFile(t *testing.T) {
 	if tf.Tasks[0].ID != "t1" {
 		t.Errorf("expected id t1, got %q", tf.Tasks[0].ID)
 	}
-	if tf.Tasks[1].DependsOn != "t1" {
-		t.Errorf("expected depends_on t1, got %q", tf.Tasks[1].DependsOn)
+	if len(tf.Tasks[1].DependsOn) != 1 || tf.Tasks[1].DependsOn[0] != "t1" {
+		t.Errorf("expected depends_on [t1], got %v", tf.Tasks[1].DependsOn)
 	}
 }
 
@@ -229,6 +230,76 @@ func TestLoad_AllowedReposViolation(t *testing.T) {
 	_, err := Load(path)
 	if err == nil {
 		t.Fatal("expected error for repo not in allowed_repos")
+	}
+}
+
+func TestLoad_ArrayDeps(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "tasks.json")
+	data := `{
+		"tasks": [
+			{"id": "t1", "repo": "org/r", "priority": 1, "title": "A", "prompt": "a"},
+			{"id": "t2", "repo": "org/r", "priority": 1, "title": "B", "prompt": "b"},
+			{"id": "t3", "repo": "org/r", "priority": 1, "depends_on": ["t1", "t2"], "title": "C", "prompt": "c"}
+		]
+	}`
+	if err := os.WriteFile(path, []byte(data), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	tf, err := Load(path)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(tf.Tasks[2].DependsOn) != 2 {
+		t.Fatalf("expected 2 deps, got %d", len(tf.Tasks[2].DependsOn))
+	}
+	if tf.Tasks[2].DependsOn[0] != "t1" || tf.Tasks[2].DependsOn[1] != "t2" {
+		t.Errorf("expected deps [t1 t2], got %v", tf.Tasks[2].DependsOn)
+	}
+}
+
+func TestLoad_StringDepBackwardCompat(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "tasks.json")
+	data := `{
+		"tasks": [
+			{"id": "t1", "repo": "org/r", "priority": 1, "title": "A", "prompt": "a"},
+			{"id": "t2", "repo": "org/r", "priority": 1, "depends_on": "t1", "title": "B", "prompt": "b"}
+		]
+	}`
+	if err := os.WriteFile(path, []byte(data), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	tf, err := Load(path)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(tf.Tasks[1].DependsOn) != 1 || tf.Tasks[1].DependsOn[0] != "t1" {
+		t.Errorf("expected deps [t1], got %v", tf.Tasks[1].DependsOn)
+	}
+}
+
+func TestLoad_DanglingArrayDep(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "tasks.json")
+	data := `{
+		"tasks": [
+			{"id": "t1", "repo": "org/r", "priority": 1, "title": "A", "prompt": "a"},
+			{"id": "t2", "repo": "org/r", "priority": 1, "depends_on": ["t1", "missing"], "title": "B", "prompt": "b"}
+		]
+	}`
+	if err := os.WriteFile(path, []byte(data), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	_, err := Load(path)
+	if err == nil {
+		t.Fatal("expected error for dangling dep in array")
+	}
+	if !strings.Contains(err.Error(), "missing") {
+		t.Errorf("expected error to mention 'missing', got: %v", err)
 	}
 }
 
