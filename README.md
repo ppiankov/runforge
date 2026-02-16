@@ -5,6 +5,16 @@
 
 Dependency-aware parallel task runner for AI coding agents. Reads a task spec, builds a dependency DAG, spawns parallel processes, detects failures from JSONL output, and reports results.
 
+## Why This Exists
+
+AI coding agents (Claude Code, Codex, Copilot) are powerful but suffer from three efficiency problems when used interactively:
+
+- **Context pollution** — each `/codex` invocation reads files into Claude Code's context window that have nothing to do with the current task. After 10 invocations across 6 repos, the context is full of irrelevant code.
+- **Context drift** — as conversation history grows, the agent gradually loses focus on the current task. By tool call 50+, it's re-reading files it already read and making decisions based on stale context.
+- **Token bleed** — tokens spent generating one command at a time, copy-pasting, waiting, then generating the next. Each round-trip costs planning tokens that produce no code.
+
+Runforge eliminates all three: define all tasks once in a JSON file, execute them in parallel outside the interactive session, review results when done. The interactive agent stays clean for architecture and review work.
+
 ## What This Is
 
 - Reads a JSON task file with dependency declarations
@@ -128,7 +138,7 @@ The task file is a JSON document describing work orders with optional dependenci
 |-------|----------|-------------|
 | `id` | Yes | Unique task identifier |
 | `repo` | Yes | Repository in `owner/name` format |
-| `priority` | Yes | Execution priority (lower = first) |
+| `priority` | Yes | Execution priority (lower = first; 1=high, 2=medium, 3=low, 99=run last) |
 | `title` | Yes | Short description |
 | `prompt` | Yes | Full prompt for the AI agent |
 | `depends_on` | No | ID of task that must complete first |
@@ -179,6 +189,64 @@ cd runforge
 make build    # produces bin/runforge
 make test     # run tests with -race
 make lint     # golangci-lint
+```
+
+## Task File Maintenance
+
+Task files go stale as work completes. Audit before each run to remove done tasks and update partial ones.
+
+### Manual Audit
+
+For each task, check if the described files already exist in the target repo:
+
+```bash
+# Quick check: does the file exist?
+ls ~/dev/repos/kafkaspectre/cmd/kafkaspectre/main.go
+
+# Check test coverage: do test files exist?
+find ~/dev/repos/clickspectre/internal -name '*_test.go'
+
+# Check work-orders.md status markers
+grep -E '^\[x\]|^- \[x\]' ~/dev/repos/kafkaspectre/docs/work-orders.md
+```
+
+Remove completed tasks. Narrow partial tasks to only what remains.
+
+### Automated Audit via Codex
+
+Offload the audit itself to Codex:
+
+```bash
+codex exec --full-auto --json --output-last-message /tmp/codex-task-audit.md \
+  -C ~/dev/ppiankov-github \
+  "Audit the file codex-tasks.json against the actual state of each repo.
+
+For each task:
+1. Check if the described files/features already exist in the repo
+2. Check the repo's docs/work-orders.md for [x] (done) status markers
+3. If fully done: remove the task from the JSON
+4. If partially done: update the prompt to reflect only what remains
+5. If not done: keep as-is
+
+Check patterns:
+- 'Create X' tasks: does file X exist?
+- 'Add tests' tasks: do *_test.go files exist in target packages?
+- 'Add slog' tasks: does internal/logging/logging.go exist?
+- 'Add SARIF' tasks: does internal/report/sarif.go exist?
+- 'JSON header' tasks: do tool/version/timestamp fields exist in reporter?
+- 'CONTRIBUTING.md' tasks: does the file exist in repo root?
+
+Write updated codex-tasks.json back. Write change summary to /tmp/codex-task-audit.md.
+Verify output is valid JSON: cat codex-tasks.json | jq .
+Do NOT change task IDs or repos. Only remove completed and narrow partial tasks."
+```
+
+Review the output before running:
+
+```bash
+cat /tmp/codex-task-audit.md    # what changed
+jq '.tasks | length' codex-tasks.json  # task count
+runforge run --dry-run --tasks codex-tasks.json --repos-dir ~/dev/repos
 ```
 
 ## Known Limitations
