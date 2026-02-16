@@ -252,6 +252,11 @@ func executeRun(cfg execRunConfig) (*execRunResult, error) {
 		fmt.Fprintf(os.Stdout, "\nReport: %s\n", reportPath)
 	}
 
+	sarifPath := filepath.Join(runDir, "report.sarif")
+	if err := reporter.WriteSARIFReport(report, cfg.graph, sarifPath); err != nil {
+		slog.Warn("failed to write sarif report", "error", err)
+	}
+
 	return &execRunResult{report: report, runDir: runDir}, nil
 }
 
