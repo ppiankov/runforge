@@ -42,7 +42,7 @@ func (r *TextReporter) PrintHeader(totalTasks, workers int) {
 
 // PrintStatus writes a snapshot of all task states.
 func (r *TextReporter) PrintStatus(graph *task.Graph, results map[string]*task.TaskResult) {
-	var running, completed, failed, skipped, pending []*task.TaskResult
+	var running, completed, failed, skipped, rateLimited, pending []*task.TaskResult
 
 	for _, id := range graph.Order() {
 		res := results[id]
@@ -58,6 +58,8 @@ func (r *TextReporter) PrintStatus(graph *task.Graph, results map[string]*task.T
 			failed = append(failed, res)
 		case task.StateSkipped:
 			skipped = append(skipped, res)
+		case task.StateRateLimited:
+			rateLimited = append(rateLimited, res)
 		default:
 			pending = append(pending, res)
 		}
@@ -103,6 +105,23 @@ func (r *TextReporter) PrintStatus(graph *task.Graph, results map[string]*task.T
 		fmt.Fprintln(r.w)
 	}
 
+	if len(rateLimited) > 0 {
+		fmt.Fprintf(r.w, "  %sRATE LIMITED  [%d/%d]%s\n", r.c(colorYellow), len(rateLimited), total, r.c(colorReset))
+		for _, res := range rateLimited {
+			info := "rate limit reached"
+			if !res.ResetsAt.IsZero() {
+				remaining := time.Until(res.ResetsAt).Truncate(time.Minute)
+				if remaining > 0 {
+					info = fmt.Sprintf("resets in %s", remaining)
+				} else {
+					info = fmt.Sprintf("resets at %s", res.ResetsAt.Format(time.Kitchen))
+				}
+			}
+			fmt.Fprintf(r.w, "    %-25s  %s⏸ %s%s\n", res.TaskID, r.c(colorYellow), info, r.c(colorReset))
+		}
+		fmt.Fprintln(r.w)
+	}
+
 	if len(pending) > 0 {
 		fmt.Fprintf(r.w, "  %sBLOCKED  [%d/%d]%s\n", r.c(colorDim), len(pending), total, r.c(colorReset))
 		for _, res := range pending {
@@ -124,7 +143,17 @@ func (r *TextReporter) PrintSummary(report *task.RunReport) {
 	fmt.Fprintf(r.w, "%sCompleted: %d%s  ", r.c(colorGreen), report.Completed, r.c(colorReset))
 	fmt.Fprintf(r.w, "%sFailed: %d%s  ", r.c(colorRed), report.Failed, r.c(colorReset))
 	fmt.Fprintf(r.w, "%sSkipped: %d%s  ", r.c(colorYellow), report.Skipped, r.c(colorReset))
-	fmt.Fprintf(r.w, "Duration: %s\n", report.TotalDuration.Truncate(time.Second))
+	if report.RateLimited > 0 {
+		fmt.Fprintf(r.w, "%sRate limited: %d%s  ", r.c(colorYellow), report.RateLimited, r.c(colorReset))
+	}
+	fmt.Fprintf(r.w, "Duration: %s", report.TotalDuration.Truncate(time.Second))
+	if report.RateLimited > 0 && !report.ResetsAt.IsZero() {
+		remaining := time.Until(report.ResetsAt).Truncate(time.Minute)
+		if remaining > 0 {
+			fmt.Fprintf(r.w, "  (quota resets in %s)", remaining)
+		}
+	}
+	fmt.Fprintln(r.w)
 }
 
 // PrintDryRun writes the execution plan without running anything.

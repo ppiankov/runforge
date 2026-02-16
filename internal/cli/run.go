@@ -201,10 +201,30 @@ func runTasks(tasksFile string, workers int, verify bool, reposDir, filter strin
 		}
 	}
 
+	if report.RateLimited > 0 {
+		return &RateLimitError{
+			Count:    report.RateLimited,
+			ResetsAt: report.ResetsAt,
+		}
+	}
 	if report.Failed > 0 {
 		return fmt.Errorf("%d tasks failed", report.Failed)
 	}
 	return nil
+}
+
+// RateLimitError indicates the run was stopped due to API rate limiting.
+// Callers should map this to exit code 4.
+type RateLimitError struct {
+	Count    int
+	ResetsAt time.Time
+}
+
+func (e *RateLimitError) Error() string {
+	if !e.ResetsAt.IsZero() {
+		return fmt.Sprintf("%d tasks rate-limited (resets at %s)", e.Count, e.ResetsAt.Format(time.Kitchen))
+	}
+	return fmt.Sprintf("%d tasks rate-limited", e.Count)
 }
 
 func buildReport(tasksFile string, workers int, filter, reposDir string, results map[string]*task.TaskResult, duration time.Duration) *task.RunReport {
@@ -227,6 +247,11 @@ func buildReport(tasksFile string, workers int, filter, reposDir string, results
 			report.Failed++
 		case task.StateSkipped:
 			report.Skipped++
+		case task.StateRateLimited:
+			report.RateLimited++
+			if !r.ResetsAt.IsZero() && (report.ResetsAt.IsZero() || r.ResetsAt.After(report.ResetsAt)) {
+				report.ResetsAt = r.ResetsAt
+			}
 		}
 	}
 

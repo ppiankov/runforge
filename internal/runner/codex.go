@@ -49,7 +49,8 @@ func (r *CodexRunner) Run(ctx context.Context, t *task.Task, repoDir, outputDir 
 
 	cmd := exec.CommandContext(ctx, "codex", args...)
 	cmd.Dir = repoDir
-	cmd.Stderr = newLogWriter(outputDir, "stderr.log")
+	rlw := newRateLimitWriter(newLogWriter(outputDir, "stderr.log"))
+	cmd.Stderr = rlw
 
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {
@@ -80,7 +81,16 @@ func (r *CodexRunner) Run(ctx context.Context, t *task.Task, repoDir, outputDir 
 		LastMsg:   lastMsg,
 	}
 
-	if failed {
+	// rate limit takes priority over other failure signals
+	if rlw.Detected() {
+		result.State = task.StateRateLimited
+		result.ResetsAt = rlw.ResetsAt()
+		if !result.ResetsAt.IsZero() {
+			result.Error = fmt.Sprintf("rate limit reached, resets at %s", result.ResetsAt.Format(time.Kitchen))
+		} else {
+			result.Error = "rate limit reached"
+		}
+	} else if failed {
 		result.State = task.StateFailed
 		result.Error = "codex turn.failed event detected"
 	} else if exitErr != nil {

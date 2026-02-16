@@ -108,7 +108,7 @@ func (lr *LiveReporter) Render(results map[string]*task.TaskResult) []string {
 }
 
 func (lr *LiveReporter) buildLines(results map[string]*task.TaskResult) []string {
-	var failed, running, completed, queued []*task.TaskResult
+	var failed, running, completed, rateLimited, queued []*task.TaskResult
 
 	for _, id := range lr.graph.Order() {
 		res := results[id]
@@ -124,6 +124,8 @@ func (lr *LiveReporter) buildLines(results map[string]*task.TaskResult) []string
 			completed = append(completed, res)
 		case task.StateSkipped:
 			failed = append(failed, res) // show skipped with failed
+		case task.StateRateLimited:
+			rateLimited = append(rateLimited, res)
 		default:
 			queued = append(queued, res)
 		}
@@ -176,6 +178,21 @@ func (lr *LiveReporter) buildLines(results map[string]*task.TaskResult) []string
 		taskLines++
 	}
 
+	// rate-limited (capped)
+	shownRateLimited := 0
+	for _, res := range rateLimited {
+		if taskLines >= maxTaskLines {
+			break
+		}
+		lines = append(lines, lr.formatRateLimited(res))
+		taskLines++
+		shownRateLimited++
+	}
+	if remaining := len(rateLimited) - shownRateLimited; remaining > 0 {
+		lines = append(lines, fmt.Sprintf("  %s... %d more rate-limited%s", lr.c(colorDim), remaining, lr.c(colorReset)))
+		taskLines++
+	}
+
 	// queued (capped)
 	shownQueued := 0
 	for _, res := range queued {
@@ -192,7 +209,7 @@ func (lr *LiveReporter) buildLines(results map[string]*task.TaskResult) []string
 
 	// progress line
 	lines = append(lines, "")
-	lines = append(lines, lr.progressLine(len(completed), len(running), len(failed), len(queued)))
+	lines = append(lines, lr.progressLine(len(completed), len(running), len(failed), len(rateLimited), len(queued)))
 
 	return lines
 }
@@ -239,6 +256,23 @@ func (lr *LiveReporter) formatCompleted(res *task.TaskResult) string {
 		lr.c(colorGreen), "done", res.TaskID, title, dur, lr.c(colorReset))
 }
 
+func (lr *LiveReporter) formatRateLimited(res *task.TaskResult) string {
+	t := lr.graph.Task(res.TaskID)
+	title := ""
+	if t != nil {
+		title = t.Title
+	}
+	info := "rate limit"
+	if !res.ResetsAt.IsZero() {
+		remaining := time.Until(res.ResetsAt).Truncate(time.Minute)
+		if remaining > 0 {
+			info = fmt.Sprintf("resets in %s", remaining)
+		}
+	}
+	return fmt.Sprintf("  %s⏸ %-10s %-25s %-30s %s%s",
+		lr.c(colorYellow), "rate-limit", res.TaskID, title, info, lr.c(colorReset))
+}
+
 func (lr *LiveReporter) formatQueued(res *task.TaskResult) string {
 	t := lr.graph.Task(res.TaskID)
 	title := ""
@@ -253,7 +287,7 @@ func (lr *LiveReporter) formatQueued(res *task.TaskResult) string {
 		lr.c(colorDim), "queued", res.TaskID, title, dep, lr.c(colorReset))
 }
 
-func (lr *LiveReporter) progressLine(done, running, failed, queued int) string {
+func (lr *LiveReporter) progressLine(done, running, failed, rateLimited, queued int) string {
 	parts := []string{}
 	if done > 0 {
 		parts = append(parts, fmt.Sprintf("%s%d done%s", lr.c(colorGreen), done, lr.c(colorReset)))
@@ -263,6 +297,9 @@ func (lr *LiveReporter) progressLine(done, running, failed, queued int) string {
 	}
 	if failed > 0 {
 		parts = append(parts, fmt.Sprintf("%s%d failed%s", lr.c(colorRed), failed, lr.c(colorReset)))
+	}
+	if rateLimited > 0 {
+		parts = append(parts, fmt.Sprintf("%s%d rate-limited%s", lr.c(colorYellow), rateLimited, lr.c(colorReset)))
 	}
 	if queued > 0 {
 		parts = append(parts, fmt.Sprintf("%s%d queued%s", lr.c(colorDim), queued, lr.c(colorReset)))

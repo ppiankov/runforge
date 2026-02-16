@@ -14,7 +14,8 @@ const (
 	StateRunning
 	StateCompleted
 	StateFailed
-	StateSkipped // dependency failed
+	StateSkipped     // dependency failed
+	StateRateLimited // API rate limit reached
 )
 
 func (s TaskState) String() string {
@@ -31,6 +32,8 @@ func (s TaskState) String() string {
 		return "FAILED"
 	case StateSkipped:
 		return "SKIPPED"
+	case StateRateLimited:
+		return "RATE_LIMITED"
 	default:
 		return "UNKNOWN"
 	}
@@ -103,6 +106,7 @@ type TaskResult struct {
 	OutputDir string        `json:"output_dir,omitempty"`
 	LastMsg   string        `json:"last_message,omitempty"`
 	Error     string        `json:"error,omitempty"`
+	ResetsAt  time.Time     `json:"resets_at,omitempty"`
 }
 
 // RunReport is the final output of a runforge execution.
@@ -117,5 +121,7 @@ type RunReport struct {
 	Completed     int                    `json:"completed"`
 	Failed        int                    `json:"failed"`
 	Skipped       int                    `json:"skipped"`
+	RateLimited   int                    `json:"rate_limited"`
 	TotalDuration time.Duration          `json:"total_duration"`
+	ResetsAt      time.Time              `json:"resets_at,omitempty"`
 }
