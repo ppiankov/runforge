@@ -1,0 +1,325 @@
+package cli
+
+import (
+	"context"
+	"fmt"
+	"testing"
+	"time"
+
+	"github.com/ppiankov/runforge/internal/runner"
+	"github.com/ppiankov/runforge/internal/task"
+)
+
+// mockRunner simulates a runner with configurable behavior.
+type mockRunner struct {
+	name   string
+	result func(t *task.Task) *task.TaskResult
+}
+
+func (m *mockRunner) Name() string { return m.name }
+func (m *mockRunner) Run(_ context.Context, t *task.Task, _, _ string) *task.TaskResult {
+	return m.result(t)
+}
+
+func completedResult(id string) *task.TaskResult {
+	return &task.TaskResult{TaskID: id, State: task.StateCompleted}
+}
+
+func failedMockResult(id, msg string) *task.TaskResult {
+	return &task.TaskResult{TaskID: id, State: task.StateFailed, Error: msg}
+}
+
+func rateLimitedResult(id string, resetsAt time.Time) *task.TaskResult {
+	return &task.TaskResult{TaskID: id, State: task.StateRateLimited, ResetsAt: resetsAt}
+}
+
+func TestCascade_FirstSucceeds(t *testing.T) {
+	runners := map[string]runner.Runner{
+		"codex": &mockRunner{name: "codex", result: func(tk *task.Task) *task.TaskResult {
+			return completedResult(tk.ID)
+		}},
+		"zai": &mockRunner{name: "zai", result: func(tk *task.Task) *task.TaskResult {
+			t.Fatal("zai should not be called")
+			return nil
+		}},
+	}
+
+	tk := &task.Task{ID: "test-1", Repo: "test/repo", Prompt: "do stuff"}
+	bl := runner.NewRunnerBlacklist()
+	result := RunWithCascade(context.Background(), tk, "/tmp", t.TempDir(), runners, []string{"codex", "zai"}, 5*time.Minute, bl)
+
+	if result.State != task.StateCompleted {
+		t.Fatalf("expected completed, got %s", result.State)
+	}
+	if result.RunnerUsed != "codex" {
+		t.Fatalf("expected runner_used=codex, got %s", result.RunnerUsed)
+	}
+	if len(result.Attempts) != 1 {
+		t.Fatalf("expected 1 attempt, got %d", len(result.Attempts))
+	}
+}
+
+func TestCascade_FirstRateLimited(t *testing.T) {
+	resetsAt := time.Now().Add(4 * time.Hour)
+	runners := map[string]runner.Runner{
+		"codex": &mockRunner{name: "codex", result: func(tk *task.Task) *task.TaskResult {
+			return rateLimitedResult(tk.ID, resetsAt)
+		}},
+		"zai": &mockRunner{name: "zai", result: func(tk *task.Task) *task.TaskResult {
+			return completedResult(tk.ID)
+		}},
+	}
+
+	tk := &task.Task{ID: "test-2", Repo: "test/repo", Prompt: "do stuff"}
+	bl := runner.NewRunnerBlacklist()
+	result := RunWithCascade(context.Background(), tk, "/tmp", t.TempDir(), runners, []string{"codex", "zai"}, 5*time.Minute, bl)
+
+	if result.State != task.StateCompleted {
+		t.Fatalf("expected completed, got %s", result.State)
+	}
+	if result.RunnerUsed != "zai" {
+		t.Fatalf("expected runner_used=zai, got %s", result.RunnerUsed)
+	}
+	if len(result.Attempts) != 2 {
+		t.Fatalf("expected 2 attempts, got %d", len(result.Attempts))
+	}
+}
+
+func TestCascade_FirstFailed(t *testing.T) {
+	runners := map[string]runner.Runner{
+		"codex": &mockRunner{name: "codex", result: func(tk *task.Task) *task.TaskResult {
+			return failedMockResult(tk.ID, "codex error")
+		}},
+		"zai": &mockRunner{name: "zai", result: func(tk *task.Task) *task.TaskResult {
+			return completedResult(tk.ID)
+		}},
+	}
+
+	tk := &task.Task{ID: "test-3", Repo: "test/repo", Prompt: "do stuff"}
+	bl := runner.NewRunnerBlacklist()
+	result := RunWithCascade(context.Background(), tk, "/tmp", t.TempDir(), runners, []string{"codex", "zai"}, 5*time.Minute, bl)
+
+	if result.State != task.StateCompleted {
+		t.Fatalf("expected completed, got %s", result.State)
+	}
+	if result.RunnerUsed != "zai" {
+		t.Fatalf("expected runner_used=zai, got %s", result.RunnerUsed)
+	}
+}
+
+func TestCascade_AllFail(t *testing.T) {
+	runners := map[string]runner.Runner{
+		"codex": &mockRunner{name: "codex", result: func(tk *task.Task) *task.TaskResult {
+			return failedMockResult(tk.ID, "codex error")
+		}},
+		"zai": &mockRunner{name: "zai", result: func(tk *task.Task) *task.TaskResult {
+			return failedMockResult(tk.ID, "zai error")
+		}},
+	}
+
+	tk := &task.Task{ID: "test-4", Repo: "test/repo", Prompt: "do stuff"}
+	bl := runner.NewRunnerBlacklist()
+	result := RunWithCascade(context.Background(), tk, "/tmp", t.TempDir(), runners, []string{"codex", "zai"}, 5*time.Minute, bl)
+
+	if result.State != task.StateFailed {
+		t.Fatalf("expected failed, got %s", result.State)
+	}
+	if len(result.Attempts) != 2 {
+		t.Fatalf("expected 2 attempts, got %d", len(result.Attempts))
+	}
+}
+
+func TestCascade_BlacklistSkips(t *testing.T) {
+	callCount := 0
+	runners := map[string]runner.Runner{
+		"codex": &mockRunner{name: "codex", result: func(tk *task.Task) *task.TaskResult {
+			t.Fatal("codex should be skipped due to blacklist")
+			return nil
+		}},
+		"zai": &mockRunner{name: "zai", result: func(tk *task.Task) *task.TaskResult {
+			callCount++
+			return completedResult(tk.ID)
+		}},
+	}
+
+	bl := runner.NewRunnerBlacklist()
+	bl.Block("codex", time.Now().Add(4*time.Hour))
+
+	tk := &task.Task{ID: "test-5", Repo: "test/repo", Prompt: "do stuff"}
+	result := RunWithCascade(context.Background(), tk, "/tmp", t.TempDir(), runners, []string{"codex", "zai"}, 5*time.Minute, bl)
+
+	if result.State != task.StateCompleted {
+		t.Fatalf("expected completed, got %s", result.State)
+	}
+	if result.RunnerUsed != "zai" {
+		t.Fatalf("expected runner_used=zai, got %s", result.RunnerUsed)
+	}
+	if callCount != 1 {
+		t.Fatalf("expected zai called once, got %d", callCount)
+	}
+	// first attempt should be a skip
+	if result.Attempts[0].State != task.StateSkipped {
+		t.Fatalf("expected first attempt skipped, got %s", result.Attempts[0].State)
+	}
+}
+
+func TestCascade_NoFallbacks(t *testing.T) {
+	runners := map[string]runner.Runner{
+		"codex": &mockRunner{name: "codex", result: func(tk *task.Task) *task.TaskResult {
+			return completedResult(tk.ID)
+		}},
+	}
+
+	tk := &task.Task{ID: "test-6", Repo: "test/repo", Prompt: "do stuff"}
+	bl := runner.NewRunnerBlacklist()
+	result := RunWithCascade(context.Background(), tk, "/tmp", t.TempDir(), runners, []string{"codex"}, 5*time.Minute, bl)
+
+	if result.State != task.StateCompleted {
+		t.Fatalf("expected completed, got %s", result.State)
+	}
+	if result.RunnerUsed != "codex" {
+		t.Fatalf("expected runner_used=codex, got %s", result.RunnerUsed)
+	}
+	if len(result.Attempts) != 1 {
+		t.Fatalf("expected 1 attempt, got %d", len(result.Attempts))
+	}
+}
+
+func TestCascade_AttemptsRecorded(t *testing.T) {
+	resetsAt := time.Now().Add(1 * time.Hour)
+	runners := map[string]runner.Runner{
+		"codex": &mockRunner{name: "codex", result: func(tk *task.Task) *task.TaskResult {
+			return rateLimitedResult(tk.ID, resetsAt)
+		}},
+		"zai": &mockRunner{name: "zai", result: func(tk *task.Task) *task.TaskResult {
+			return failedMockResult(tk.ID, "zai broke")
+		}},
+		"claude-api": &mockRunner{name: "claude-api", result: func(tk *task.Task) *task.TaskResult {
+			return completedResult(tk.ID)
+		}},
+	}
+
+	tk := &task.Task{ID: "test-7", Repo: "test/repo", Prompt: "do stuff"}
+	bl := runner.NewRunnerBlacklist()
+	result := RunWithCascade(context.Background(), tk, "/tmp", t.TempDir(), runners, []string{"codex", "zai", "claude-api"}, 5*time.Minute, bl)
+
+	if result.State != task.StateCompleted {
+		t.Fatalf("expected completed, got %s", result.State)
+	}
+	if result.RunnerUsed != "claude-api" {
+		t.Fatalf("expected runner_used=claude-api, got %s", result.RunnerUsed)
+	}
+	if len(result.Attempts) != 3 {
+		t.Fatalf("expected 3 attempts, got %d", len(result.Attempts))
+	}
+
+	// verify attempt details
+	if result.Attempts[0].Runner != "codex" || result.Attempts[0].State != task.StateRateLimited {
+		t.Fatalf("attempt 0 wrong: %+v", result.Attempts[0])
+	}
+	if result.Attempts[1].Runner != "zai" || result.Attempts[1].State != task.StateFailed {
+		t.Fatalf("attempt 1 wrong: %+v", result.Attempts[1])
+	}
+	if result.Attempts[2].Runner != "claude-api" || result.Attempts[2].State != task.StateCompleted {
+		t.Fatalf("attempt 2 wrong: %+v", result.Attempts[2])
+	}
+}
+
+func TestCascade_RateLimitBlocksForSubsequentTasks(t *testing.T) {
+	resetsAt := time.Now().Add(4 * time.Hour)
+	codexCalls := 0
+	runners := map[string]runner.Runner{
+		"codex": &mockRunner{name: "codex", result: func(tk *task.Task) *task.TaskResult {
+			codexCalls++
+			return rateLimitedResult(tk.ID, resetsAt)
+		}},
+		"zai": &mockRunner{name: "zai", result: func(tk *task.Task) *task.TaskResult {
+			return completedResult(tk.ID)
+		}},
+	}
+
+	bl := runner.NewRunnerBlacklist()
+
+	// first task triggers rate limit
+	tk1 := &task.Task{ID: "task-1", Repo: "test/repo", Prompt: "first"}
+	r1 := RunWithCascade(context.Background(), tk1, "/tmp", t.TempDir(), runners, []string{"codex", "zai"}, 5*time.Minute, bl)
+	if r1.State != task.StateCompleted {
+		t.Fatalf("task-1: expected completed, got %s", r1.State)
+	}
+	if codexCalls != 1 {
+		t.Fatalf("expected codex called once for task-1, got %d", codexCalls)
+	}
+
+	// second task should skip codex entirely
+	tk2 := &task.Task{ID: "task-2", Repo: "test/repo", Prompt: "second"}
+	r2 := RunWithCascade(context.Background(), tk2, "/tmp", t.TempDir(), runners, []string{"codex", "zai"}, 5*time.Minute, bl)
+	if r2.State != task.StateCompleted {
+		t.Fatalf("task-2: expected completed, got %s", r2.State)
+	}
+	if codexCalls != 1 {
+		t.Fatalf("expected codex NOT called for task-2, but total calls is %d", codexCalls)
+	}
+}
+
+func TestResolveRunnerCascade_Defaults(t *testing.T) {
+	tk := &task.Task{ID: "t1"}
+	cascade := resolveRunnerCascade(tk, "codex", []string{"zai", "claude-api"})
+	expected := []string{"codex", "zai", "claude-api"}
+	if fmt.Sprintf("%v", cascade) != fmt.Sprintf("%v", expected) {
+		t.Fatalf("expected %v, got %v", expected, cascade)
+	}
+}
+
+func TestResolveRunnerCascade_TaskOverride(t *testing.T) {
+	tk := &task.Task{ID: "t1", Runner: "zai", Fallbacks: []string{"claude-api"}}
+	cascade := resolveRunnerCascade(tk, "codex", []string{"zai", "claude-api"})
+	expected := []string{"zai", "claude-api"}
+	if fmt.Sprintf("%v", cascade) != fmt.Sprintf("%v", expected) {
+		t.Fatalf("expected %v, got %v", expected, cascade)
+	}
+}
+
+func TestResolveRunnerCascade_NoDuplicatePrimary(t *testing.T) {
+	tk := &task.Task{ID: "t1"}
+	cascade := resolveRunnerCascade(tk, "codex", []string{"codex", "zai"})
+	expected := []string{"codex", "zai"}
+	if fmt.Sprintf("%v", cascade) != fmt.Sprintf("%v", expected) {
+		t.Fatalf("expected %v, got %v", expected, cascade)
+	}
+}
+
+func TestBuildRunnerRegistry_BuiltinsOnly(t *testing.T) {
+	tf := &task.TaskFile{}
+	reg, err := buildRunnerRegistry(tf)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	for _, name := range []string{"codex", "claude", "script"} {
+		if _, ok := reg[name]; !ok {
+			t.Fatalf("expected built-in runner %q", name)
+		}
+	}
+}
+
+func TestBuildRunnerRegistry_WithProfile(t *testing.T) {
+	tf := &task.TaskFile{
+		Runners: map[string]*task.RunnerProfileConfig{
+			"zai": {
+				Type: "claude",
+				Env: map[string]string{
+					"API_URL": "https://api.z.ai",
+				},
+			},
+		},
+	}
+	reg, err := buildRunnerRegistry(tf)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if _, ok := reg["zai"]; !ok {
+		t.Fatal("expected zai runner in registry")
+	}
+	if _, ok := reg["codex"]; !ok {
+		t.Fatal("expected codex runner still in registry")
+	}
+}

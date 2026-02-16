@@ -59,6 +59,48 @@ func validate(tf *task.TaskFile) error {
 		}
 	}
 
+	// validate runner profiles
+	knownTypes := map[string]struct{}{"codex": {}, "claude": {}, "script": {}}
+	// build set of known runner names: built-ins + profiles
+	knownRunners := map[string]struct{}{"codex": {}, "claude": {}, "script": {}}
+	for name, profile := range tf.Runners {
+		if profile.Type == "" {
+			return fmt.Errorf("runner profile %q has empty type", name)
+		}
+		if _, ok := knownTypes[profile.Type]; !ok {
+			return fmt.Errorf("runner profile %q has unknown type %q", name, profile.Type)
+		}
+		knownRunners[name] = struct{}{}
+	}
+
+	// validate default_runner
+	if tf.DefaultRunner != "" {
+		if _, ok := knownRunners[tf.DefaultRunner]; !ok {
+			return fmt.Errorf("default_runner %q is not a known runner", tf.DefaultRunner)
+		}
+	}
+
+	// validate default_fallbacks
+	for _, fb := range tf.DefaultFallbacks {
+		if _, ok := knownRunners[fb]; !ok {
+			return fmt.Errorf("default_fallbacks references unknown runner %q", fb)
+		}
+	}
+
+	// validate per-task runner and fallbacks
+	for _, t := range tf.Tasks {
+		if t.Runner != "" {
+			if _, ok := knownRunners[t.Runner]; !ok {
+				return fmt.Errorf("task %q references unknown runner %q", t.ID, t.Runner)
+			}
+		}
+		for _, fb := range t.Fallbacks {
+			if _, ok := knownRunners[fb]; !ok {
+				return fmt.Errorf("task %q fallback references unknown runner %q", t.ID, fb)
+			}
+		}
+	}
+
 	// validate allowed_repos constraint
 	if len(tf.AllowedRepos) > 0 {
 		allowed := make(map[string]struct{}, len(tf.AllowedRepos))

@@ -47,7 +47,8 @@ type Task struct {
 	DependsOn []string `json:"depends_on,omitempty"`
 	Title     string   `json:"title"`
 	Prompt    string   `json:"prompt"`
-	Runner    string   `json:"runner,omitempty"` // default: "codex"
+	Runner    string   `json:"runner,omitempty"`    // default: from TaskFile.DefaultRunner
+	Fallbacks []string `json:"fallbacks,omitempty"` // runner profiles to try on failure/rate-limit
 }
 
 // UnmarshalJSON supports both string and array formats for depends_on.
@@ -88,12 +89,32 @@ func (t *Task) UnmarshalJSON(data []byte) error {
 	return nil
 }
 
+// RunnerProfileConfig defines a named runner profile with optional env overrides.
+// Profiles allow the same runner type (e.g., "claude") to be used with different
+// API endpoints or credentials (e.g., Z.ai proxy, direct API).
+type RunnerProfileConfig struct {
+	Type string            `json:"type"`          // "codex", "claude", "script"
+	Env  map[string]string `json:"env,omitempty"` // env overrides; "env:VAR" = read from OS
+}
+
 // TaskFile is the top-level structure of the tasks JSON file.
 type TaskFile struct {
-	Description  string   `json:"description,omitempty"`
-	Generated    string   `json:"generated,omitempty"`
-	AllowedRepos []string `json:"allowed_repos,omitempty"`
-	Tasks        []Task   `json:"tasks"`
+	Description      string                          `json:"description,omitempty"`
+	Generated        string                          `json:"generated,omitempty"`
+	AllowedRepos     []string                        `json:"allowed_repos,omitempty"`
+	DefaultRunner    string                          `json:"default_runner,omitempty"`    // default: "codex"
+	DefaultFallbacks []string                        `json:"default_fallbacks,omitempty"` // applied when task has no fallbacks
+	Runners          map[string]*RunnerProfileConfig `json:"runners,omitempty"`           // named runner profiles
+	Tasks            []Task                          `json:"tasks"`
+}
+
+// AttemptInfo records a single runner attempt within a fallback cascade.
+type AttemptInfo struct {
+	Runner    string        `json:"runner"`
+	State     TaskState     `json:"state"`
+	Duration  time.Duration `json:"duration"`
+	Error     string        `json:"error,omitempty"`
+	OutputDir string        `json:"output_dir,omitempty"`
 }
 
 // TaskResult captures the outcome of executing a single task.
@@ -107,6 +128,9 @@ type TaskResult struct {
 	LastMsg   string        `json:"last_message,omitempty"`
 	Error     string        `json:"error,omitempty"`
 	ResetsAt  time.Time     `json:"resets_at,omitempty"`
+
+	RunnerUsed string        `json:"runner_used,omitempty"` // profile that produced the final result
+	Attempts   []AttemptInfo `json:"attempts,omitempty"`    // all cascade attempts
 }
 
 // RunReport is the final output of a runforge execution.

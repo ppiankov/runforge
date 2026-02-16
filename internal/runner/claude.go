@@ -29,11 +29,18 @@ type claudeContent struct {
 }
 
 // ClaudeRunner spawns Claude Code CLI processes and parses their stream-json output.
-type ClaudeRunner struct{}
+type ClaudeRunner struct {
+	env []string // additional env vars for the subprocess
+}
 
 // NewClaudeRunner creates a new ClaudeRunner.
 func NewClaudeRunner() *ClaudeRunner {
 	return &ClaudeRunner{}
+}
+
+// NewClaudeRunnerWithEnv creates a ClaudeRunner with custom environment variables.
+func NewClaudeRunnerWithEnv(env map[string]string) *ClaudeRunner {
+	return &ClaudeRunner{env: MapToEnvSlice(env)}
 }
 
 // Name returns the runner identifier.
@@ -58,6 +65,9 @@ func (r *ClaudeRunner) Run(ctx context.Context, t *task.Task, repoDir, outputDir
 
 	cmd := exec.CommandContext(ctx, "claude", args...)
 	cmd.Dir = repoDir
+	if len(r.env) > 0 {
+		cmd.Env = append(os.Environ(), r.env...)
+	}
 	rlw := newRateLimitWriter(newLogWriter(outputDir, "stderr.log"))
 	cmd.Stderr = rlw
 

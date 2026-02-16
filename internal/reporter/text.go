@@ -84,7 +84,8 @@ func (r *TextReporter) PrintStatus(graph *task.Graph, results map[string]*task.T
 			title = t.Title
 		}
 		dur := res.Duration.Truncate(time.Second)
-		return fmt.Sprintf("    %-25s %-35s %s  ✓", res.TaskID, title, dur)
+		via := runnerSuffix(res)
+		return fmt.Sprintf("    %-25s %-35s %s  ✓%s", res.TaskID, title, dur, via)
 	})
 
 	r.printSection("FAILED", colorRed, failed, total, graph, func(res *task.TaskResult) string {
@@ -94,7 +95,8 @@ func (r *TextReporter) PrintStatus(graph *task.Graph, results map[string]*task.T
 			title = t.Title
 		}
 		dur := res.Duration.Truncate(time.Second)
-		return fmt.Sprintf("    %-25s %-35s %s  ✗ %s", res.TaskID, title, dur, res.Error)
+		via := runnerSuffix(res)
+		return fmt.Sprintf("    %-25s %-35s %s  ✗ %s%s", res.TaskID, title, dur, res.Error, via)
 	})
 
 	if len(skipped) > 0 {
@@ -146,6 +148,10 @@ func (r *TextReporter) PrintSummary(report *task.RunReport) {
 	if report.RateLimited > 0 {
 		fmt.Fprintf(r.w, "%sRate limited: %d%s  ", r.c(colorYellow), report.RateLimited, r.c(colorReset))
 	}
+	fallbackCount := countFallbacks(report)
+	if fallbackCount > 0 {
+		fmt.Fprintf(r.w, "%sFallback: %d%s  ", r.c(colorYellow), fallbackCount, r.c(colorReset))
+	}
 	fmt.Fprintf(r.w, "Duration: %s", report.TotalDuration.Truncate(time.Second))
 	if report.RateLimited > 0 && !report.ResetsAt.IsZero() {
 		remaining := time.Until(report.ResetsAt).Truncate(time.Minute)
@@ -191,4 +197,23 @@ func (r *TextReporter) c(code string) string {
 		return ""
 	}
 	return code
+}
+
+// runnerSuffix returns " (via <runner>)" if a fallback runner was used.
+func runnerSuffix(res *task.TaskResult) string {
+	if res.RunnerUsed != "" && len(res.Attempts) > 1 {
+		return fmt.Sprintf(" (via %s)", res.RunnerUsed)
+	}
+	return ""
+}
+
+// countFallbacks counts tasks that used a non-primary runner.
+func countFallbacks(report *task.RunReport) int {
+	n := 0
+	for _, r := range report.Results {
+		if len(r.Attempts) > 1 {
+			n++
+		}
+	}
+	return n
 }

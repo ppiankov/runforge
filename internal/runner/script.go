@@ -14,11 +14,18 @@ import (
 )
 
 // ScriptRunner executes shell commands via sh -c.
-type ScriptRunner struct{}
+type ScriptRunner struct {
+	env []string // additional env vars for the subprocess
+}
 
 // NewScriptRunner creates a new ScriptRunner.
 func NewScriptRunner() *ScriptRunner {
 	return &ScriptRunner{}
+}
+
+// NewScriptRunnerWithEnv creates a ScriptRunner with custom environment variables.
+func NewScriptRunnerWithEnv(env map[string]string) *ScriptRunner {
+	return &ScriptRunner{env: MapToEnvSlice(env)}
 }
 
 // Name returns the runner identifier.
@@ -36,6 +43,9 @@ func (r *ScriptRunner) Run(ctx context.Context, t *task.Task, repoDir, outputDir
 
 	cmd := exec.CommandContext(ctx, "sh", "-c", t.Prompt)
 	cmd.Dir = repoDir
+	if len(r.env) > 0 {
+		cmd.Env = append(os.Environ(), r.env...)
+	}
 	cmd.Stdout = newLogWriter(outputDir, "output.log")
 	cmd.Stderr = newLogWriter(outputDir, "stderr.log")
 
