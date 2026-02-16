@@ -8,6 +8,7 @@ type EventType string
 
 const (
 	EventThreadStarted EventType = "thread.started"
+	EventItemStarted   EventType = "item.started"
 	EventItemCompleted EventType = "item.completed"
 	EventTurnCompleted EventType = "turn.completed"
 	EventTurnFailed    EventType = "turn.failed"
