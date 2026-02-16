@@ -17,7 +17,8 @@ import (
 
 // CodexRunner spawns codex exec processes and parses their JSONL output.
 type CodexRunner struct {
-	env []string // additional env vars for the subprocess
+	model string   // model override (--model flag)
+	env   []string // additional env vars for the subprocess
 }
 
 // NewCodexRunner creates a new CodexRunner.
@@ -25,9 +26,9 @@ func NewCodexRunner() *CodexRunner {
 	return &CodexRunner{}
 }
 
-// NewCodexRunnerWithEnv creates a CodexRunner with custom environment variables.
-func NewCodexRunnerWithEnv(env map[string]string) *CodexRunner {
-	return &CodexRunner{env: MapToEnvSlice(env)}
+// NewCodexRunnerWithProfile creates a CodexRunner with model and env overrides.
+func NewCodexRunnerWithProfile(model string, env map[string]string) *CodexRunner {
+	return &CodexRunner{model: model, env: MapToEnvSlice(env)}
 }
 
 // Name returns the runner identifier.
@@ -49,10 +50,13 @@ func (r *CodexRunner) Run(ctx context.Context, t *task.Task, repoDir, outputDir 
 		"--json",
 		"--output-last-message", outputFile,
 		"-C", repoDir,
-		t.Prompt,
 	}
+	if r.model != "" {
+		args = append(args, "--model", r.model)
+	}
+	args = append(args, t.Prompt)
 
-	slog.Debug("spawning codex", "task", t.ID, "repo", t.Repo, "dir", repoDir)
+	slog.Debug("spawning codex", "task", t.ID, "repo", t.Repo, "dir", repoDir, "model", r.model)
 
 	cmd := exec.CommandContext(ctx, "codex", args...)
 	cmd.Dir = repoDir

@@ -30,7 +30,8 @@ type claudeContent struct {
 
 // ClaudeRunner spawns Claude Code CLI processes and parses their stream-json output.
 type ClaudeRunner struct {
-	env []string // additional env vars for the subprocess
+	model string   // model override (--model flag)
+	env   []string // additional env vars for the subprocess
 }
 
 // NewClaudeRunner creates a new ClaudeRunner.
@@ -38,9 +39,9 @@ func NewClaudeRunner() *ClaudeRunner {
 	return &ClaudeRunner{}
 }
 
-// NewClaudeRunnerWithEnv creates a ClaudeRunner with custom environment variables.
-func NewClaudeRunnerWithEnv(env map[string]string) *ClaudeRunner {
-	return &ClaudeRunner{env: MapToEnvSlice(env)}
+// NewClaudeRunnerWithProfile creates a ClaudeRunner with model and env overrides.
+func NewClaudeRunnerWithProfile(model string, env map[string]string) *ClaudeRunner {
+	return &ClaudeRunner{model: model, env: MapToEnvSlice(env)}
 }
 
 // Name returns the runner identifier.
@@ -58,10 +59,13 @@ func (r *ClaudeRunner) Run(ctx context.Context, t *task.Task, repoDir, outputDir
 		"-p",
 		"--output-format", "stream-json",
 		"--dangerously-skip-permissions",
-		t.Prompt,
 	}
+	if r.model != "" {
+		args = append(args, "--model", r.model)
+	}
+	args = append(args, t.Prompt)
 
-	slog.Debug("spawning claude", "task", t.ID, "repo", t.Repo, "dir", repoDir)
+	slog.Debug("spawning claude", "task", t.ID, "repo", t.Repo, "dir", repoDir, "model", r.model)
 
 	cmd := exec.CommandContext(ctx, "claude", args...)
 	cmd.Dir = repoDir
