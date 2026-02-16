@@ -296,13 +296,15 @@ runforge run --dry-run --tasks codex-tasks.json --repos-dir ~/dev/repos
 - No remote execution — runs processes locally
 - Codex is the only runner backend (runner interface is ready for extensions)
 - No live status refresh in terminal (prints final state)
+- No pre-flight quota check — Codex/Claude APIs don't expose remaining quota. If the runner hits a rate limit (`usage_limit_reached`), all subsequent tasks fail with the same error. Workaround: use fewer workers (`--workers 2`) for large batches to stay under rate limits. See WO-11 for planned rate limit detection that will stop spawning on first 429.
 
 ## Roadmap
 
+- [ ] Rate limit detection — stop on first 429, show reset countdown (WO-11)
+- [ ] Live terminal status with refresh (WO-10)
 - [ ] Claude runner backend
 - [ ] Script runner backend (arbitrary commands)
 - [ ] Multi-dependency support (`depends_on` as array)
-- [ ] Live terminal status with refresh
 - [ ] SARIF report output
 
 ## License
