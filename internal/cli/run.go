@@ -97,14 +97,83 @@ func runTasks(tasksFile string, workers int, verify bool, reposDir, filter strin
 		return nil
 	}
 
+	report, err := executeRun(execRunConfig{
+		tasksFile:  tasksFile,
+		tasks:      tasks,
+		graph:      graph,
+		workers:    workers,
+		reposDir:   reposDir,
+		filter:     filter,
+		maxRuntime: maxRuntime,
+		failFast:   failFast,
+	})
+	if err != nil {
+		return err
+	}
+
+	// verify if requested
+	if verify {
+		ctx := context.Background()
+		fmt.Fprintln(os.Stdout, "\n--- Verification ---")
+		repos := collectRepos(tasks)
+		for _, repo := range repos {
+			repoPath := config.RepoPath(repo, reposDir)
+			vr := runner.Verify(ctx, repo, repoPath, report.runDir)
+			if vr.Passed {
+				fmt.Fprintf(os.Stdout, "  ✓ %s\n", repo)
+			} else {
+				fmt.Fprintf(os.Stdout, "  ✗ %s: %s\n", repo, vr.Error)
+			}
+		}
+	}
+
+	return report.err()
+}
+
+// execRunConfig holds parameters for executeRun.
+type execRunConfig struct {
+	tasksFile  string
+	tasks      []task.Task
+	graph      *task.Graph
+	workers    int
+	reposDir   string
+	filter     string
+	maxRuntime time.Duration
+	failFast   bool
+}
+
+// execRunResult wraps the report and run directory.
+type execRunResult struct {
+	report *task.RunReport
+	runDir string
+}
+
+func (r *execRunResult) err() error {
+	if r.report.RateLimited > 0 {
+		return &RateLimitError{
+			Count:    r.report.RateLimited,
+			ResetsAt: r.report.ResetsAt,
+		}
+	}
+	if r.report.Failed > 0 {
+		return fmt.Errorf("%d tasks failed", r.report.Failed)
+	}
+	return nil
+}
+
+// executeRun is the shared execution core used by both run and rerun commands.
+func executeRun(cfg execRunConfig) (*execRunResult, error) {
+	isTTY := isTerminal()
+	textRep := reporter.NewTextReporter(os.Stdout, isTTY)
+
 	// prepare run directory
 	runDir := filepath.Join(".runforge", time.Now().Format("20060102-150405"))
 	if err := os.MkdirAll(runDir, 0o755); err != nil {
-		return fmt.Errorf("create run dir: %w", err)
+		return nil, fmt.Errorf("create run dir: %w", err)
 	}
 
-	slog.Info("starting run", "tasks", len(tasks), "workers", workers, "run_dir", runDir)
-	textRep.PrintHeader(len(tasks), workers)
+	slog.Info("starting run", "tasks", len(cfg.tasks), "workers", cfg.workers, "run_dir", runDir)
+	textRep.PrintHeader(len(cfg.tasks), cfg.workers)
 
 	// setup signal handling
 	ctx, cancel := context.WithCancel(context.Background())
@@ -125,8 +194,7 @@ func runTasks(tasksFile string, workers int, verify bool, reposDir, filter strin
 	const defaultRunner = "codex"
 
 	execFn := func(ctx context.Context, t *task.Task, repoDir, outputDir string) *task.TaskResult {
-		// apply per-task timeout
-		taskCtx, taskCancel := context.WithTimeout(ctx, maxRuntime)
+		taskCtx, taskCancel := context.WithTimeout(ctx, cfg.maxRuntime)
 		defer taskCancel()
 
 		name := t.Runner
@@ -147,12 +215,12 @@ func runTasks(tasksFile string, workers int, verify bool, reposDir, filter strin
 
 	// run scheduler
 	start := time.Now()
-	sched := task.NewScheduler(graph, task.SchedulerConfig{
-		Workers:  workers,
-		ReposDir: reposDir,
+	sched := task.NewScheduler(cfg.graph, task.SchedulerConfig{
+		Workers:  cfg.workers,
+		ReposDir: cfg.reposDir,
 		RunDir:   runDir,
 		ExecFn:   execFn,
-		FailFast: failFast,
+		FailFast: cfg.failFast,
 		OnUpdate: func(id string, result *task.TaskResult) {
 			slog.Debug("task update", "task", id, "state", result.State)
 		},
@@ -161,24 +229,21 @@ func runTasks(tasksFile string, workers int, verify bool, reposDir, filter strin
 	// start live display if TTY
 	var live *reporter.LiveReporter
 	if isTTY {
-		live = reporter.NewLiveReporter(os.Stdout, true, graph, sched.Results)
+		live = reporter.NewLiveReporter(os.Stdout, true, cfg.graph, sched.Results)
 		live.Start()
 	}
 
 	results := sched.Run(ctx)
 	totalDuration := time.Since(start)
 
-	// stop live display before printing final status
 	if live != nil {
 		live.Stop()
 	}
 
-	// build report
-	report := buildReport(tasksFile, workers, filter, reposDir, results, totalDuration)
-	textRep.PrintStatus(graph, results)
+	report := buildReport(cfg.tasksFile, cfg.workers, cfg.filter, cfg.reposDir, results, totalDuration)
+	textRep.PrintStatus(cfg.graph, results)
 	textRep.PrintSummary(report)
 
-	// write JSON report
 	reportPath := filepath.Join(runDir, "report.json")
 	if err := reporter.WriteJSONReport(report, reportPath); err != nil {
 		slog.Warn("failed to write report", "error", err)
@@ -186,31 +251,7 @@ func runTasks(tasksFile string, workers int, verify bool, reposDir, filter strin
 		fmt.Fprintf(os.Stdout, "\nReport: %s\n", reportPath)
 	}
 
-	// verify if requested
-	if verify {
-		fmt.Fprintln(os.Stdout, "\n--- Verification ---")
-		repos := collectRepos(tasks)
-		for _, repo := range repos {
-			repoPath := config.RepoPath(repo, reposDir)
-			vr := runner.Verify(ctx, repo, repoPath, runDir)
-			if vr.Passed {
-				fmt.Fprintf(os.Stdout, "  ✓ %s\n", repo)
-			} else {
-				fmt.Fprintf(os.Stdout, "  ✗ %s: %s\n", repo, vr.Error)
-			}
-		}
-	}
-
-	if report.RateLimited > 0 {
-		return &RateLimitError{
-			Count:    report.RateLimited,
-			ResetsAt: report.ResetsAt,
-		}
-	}
-	if report.Failed > 0 {
-		return fmt.Errorf("%d tasks failed", report.Failed)
-	}
-	return nil
+	return &execRunResult{report: report, runDir: runDir}, nil
 }
 
 // RateLimitError indicates the run was stopped due to API rate limiting.
