@@ -113,10 +113,27 @@ func runTasks(tasksFile string, workers int, verify bool, reposDir, filter strin
 		cancel()
 	}()
 
-	// create codex runner
-	codexRunner := runner.NewCodexRunner()
+	// create runner registry
+	runners := map[string]runner.Runner{
+		"codex": runner.NewCodexRunner(),
+	}
+	const defaultRunner = "codex"
+
 	execFn := func(ctx context.Context, t *task.Task, repoDir, outputDir string) *task.TaskResult {
-		return codexRunner.Run(ctx, t, repoDir, outputDir)
+		name := t.Runner
+		if name == "" {
+			name = defaultRunner
+		}
+		r, ok := runners[name]
+		if !ok {
+			return &task.TaskResult{
+				TaskID:  t.ID,
+				State:   task.StateFailed,
+				Error:   fmt.Sprintf("unknown runner: %q", name),
+				EndedAt: time.Now(),
+			}
+		}
+		return r.Run(ctx, t, repoDir, outputDir)
 	}
 
 	// run scheduler

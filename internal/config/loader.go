@@ -59,6 +59,19 @@ func validate(tf *task.TaskFile) error {
 		}
 	}
 
+	// validate allowed_repos constraint
+	if len(tf.AllowedRepos) > 0 {
+		allowed := make(map[string]struct{}, len(tf.AllowedRepos))
+		for _, r := range tf.AllowedRepos {
+			allowed[r] = struct{}{}
+		}
+		for _, t := range tf.Tasks {
+			if _, ok := allowed[t.Repo]; !ok {
+				return fmt.Errorf("task %q targets repo %q not in allowed_repos", t.ID, t.Repo)
+			}
+		}
+	}
+
 	return nil
 }
 

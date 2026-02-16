@@ -23,6 +23,9 @@ func NewCodexRunner() *CodexRunner {
 	return &CodexRunner{}
 }
 
+// Name returns the runner identifier.
+func (r *CodexRunner) Name() string { return "codex" }
+
 // Run executes a codex task and returns the result.
 func (r *CodexRunner) Run(ctx context.Context, t *task.Task, repoDir, outputDir string) *task.TaskResult {
 	start := time.Now()

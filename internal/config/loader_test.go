@@ -189,6 +189,49 @@ func TestRepoPath(t *testing.T) {
 	}
 }
 
+func TestLoad_AllowedRepos(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "tasks.json")
+	data := `{
+		"allowed_repos": ["org/repo1", "org/repo2"],
+		"tasks": [
+			{"id": "t1", "repo": "org/repo1", "priority": 1, "title": "A", "prompt": "a"},
+			{"id": "t2", "repo": "org/repo2", "priority": 1, "title": "B", "prompt": "b"}
+		]
+	}`
+	if err := os.WriteFile(path, []byte(data), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	tf, err := Load(path)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(tf.Tasks) != 2 {
+		t.Fatalf("expected 2 tasks, got %d", len(tf.Tasks))
+	}
+}
+
+func TestLoad_AllowedReposViolation(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "tasks.json")
+	data := `{
+		"allowed_repos": ["org/repo1"],
+		"tasks": [
+			{"id": "t1", "repo": "org/repo1", "priority": 1, "title": "A", "prompt": "a"},
+			{"id": "t2", "repo": "org/forbidden", "priority": 1, "title": "B", "prompt": "b"}
+		]
+	}`
+	if err := os.WriteFile(path, []byte(data), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	_, err := Load(path)
+	if err == nil {
+		t.Fatal("expected error for repo not in allowed_repos")
+	}
+}
+
 func loadTestTasks(t *testing.T, data string) *task.TaskFile {
 	t.Helper()
 	dir := t.TempDir()

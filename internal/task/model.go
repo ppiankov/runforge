@@ -33,7 +33,7 @@ func (s TaskState) String() string {
 	}
 }
 
-// Task represents a single codex work order from the tasks file.
+// Task represents a single work order from the tasks file.
 type Task struct {
 	ID        string `json:"id"`
 	Repo      string `json:"repo"`
@@ -41,13 +41,15 @@ type Task struct {
 	DependsOn string `json:"depends_on,omitempty"`
 	Title     string `json:"title"`
 	Prompt    string `json:"prompt"`
+	Runner    string `json:"runner,omitempty"` // default: "codex"
 }
 
-// TaskFile is the top-level structure of codex-tasks.json.
+// TaskFile is the top-level structure of the tasks JSON file.
 type TaskFile struct {
-	Description string `json:"description,omitempty"`
-	Generated   string `json:"generated,omitempty"`
-	Tasks       []Task `json:"tasks"`
+	Description  string   `json:"description,omitempty"`
+	Generated    string   `json:"generated,omitempty"`
+	AllowedRepos []string `json:"allowed_repos,omitempty"`
+	Tasks        []Task   `json:"tasks"`
 }
 
 // TaskResult captures the outcome of executing a single task.
