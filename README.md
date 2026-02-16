@@ -67,6 +67,46 @@ runforge run --tasks runforge.json --repos-dir ~/dev/repos --filter "myproject-*
 runforge run --tasks runforge.json --repos-dir ~/dev/repos --fail-fast
 ```
 
+## Workflow
+
+The full cycle: generate a task file from work orders, audit it against repo state, execute, review results.
+
+```
+┌─────────────┐     ┌─────────────┐     ┌─────────────┐     ┌─────────────┐
+│   generate   │────▶│    audit     │────▶│     run      │────▶│   review    │
+│              │     │              │     │              │     │              │
+│ scan repos   │     │ remove done  │     │ DAG schedule │     │ status report│
+│ parse WOs    │     │ narrow partial│    │ parallel exec│     │ verify repos │
+│ emit JSON    │     │ validate     │     │ fail-fast    │     │ rerun failed │
+└─────────────┘     └─────────────┘     └─────────────┘     └─────────────┘
+```
+
+**Step 1: Generate** — scan repos for `docs/work-orders.md`, extract pending WOs, produce task file.
+
+```bash
+runforge generate --repos-dir ~/dev/repos --output runforge-tasks.json
+```
+
+**Step 2: Audit** — verify task file against actual repo state, remove completed tasks. See [Task File Maintenance](#task-file-maintenance).
+
+```bash
+runforge run --dry-run --tasks runforge-tasks.json --repos-dir ~/dev/repos
+```
+
+**Step 3: Run** — execute tasks in parallel with dependency ordering.
+
+```bash
+runforge run --tasks runforge-tasks.json --repos-dir ~/dev/repos --workers 6 --fail-fast
+```
+
+**Step 4: Review** — inspect results, verify repos, rerun failures.
+
+```bash
+runforge status --run-dir .runforge/<latest>
+runforge verify --run-dir .runforge/<latest> --repos-dir ~/dev/repos
+runforge rerun --run-dir .runforge/<latest>    # failed/skipped only
+```
+
 ## Usage
 
 ### `runforge run`
