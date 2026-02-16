@@ -1,0 +1,79 @@
+version: 2
+
+builds:
+  - main: ./cmd/runforge/
+    binary: runforge
+    env:
+      - CGO_ENABLED=0
+    ldflags:
+      - -s -w
+      - -X github.com/ppiankov/runforge/internal/cli.Version={{.Version}}
+      - -X github.com/ppiankov/runforge/internal/cli.Commit={{.ShortCommit}}
+    goos:
+      - linux
+      - darwin
+      - windows
+    goarch:
+      - amd64
+      - arm64
+
+archives:
+  - format: tar.gz
+    name_template: >-
+      {{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}
+    format_overrides:
+      - goos: windows
+        format: zip
+
+checksum:
+  name_template: checksums.txt
+
+changelog:
+  sort: asc
+  filters:
+    exclude:
+      - "^docs:"
+      - "^test:"
+      - "^chore:"
+
+dockers:
+  - image_templates:
+      - "ghcr.io/ppiankov/runforge:{{ .Version }}-amd64"
+    dockerfile: Dockerfile.goreleaser
+    use: buildx
+    build_flag_templates:
+      - "--platform=linux/amd64"
+    goarch: amd64
+
+  - image_templates:
+      - "ghcr.io/ppiankov/runforge:{{ .Version }}-arm64"
+    dockerfile: Dockerfile.goreleaser
+    use: buildx
+    build_flag_templates:
+      - "--platform=linux/arm64"
+    goarch: arm64
+
+brews:
+  - repository:
+      owner: ppiankov
+      name: homebrew-tap
+      token: "{{ .Env.HOMEBREW_TAP_TOKEN }}"
+    directory: Formula
+    homepage: "https://github.com/ppiankov/runforge"
+    description: "Dependency-aware parallel task runner for AI coding agents"
+    license: MIT
+    install: |
+      bin.install "runforge"
+    test: |
+      system "#{bin}/runforge", "version"
+
+docker_manifests:
+  - name_template: "ghcr.io/ppiankov/runforge:{{ .Version }}"
+    image_templates:
+      - "ghcr.io/ppiankov/runforge:{{ .Version }}-amd64"
+      - "ghcr.io/ppiankov/runforge:{{ .Version }}-arm64"
+
+  - name_template: "ghcr.io/ppiankov/runforge:latest"
+    image_templates:
+      - "ghcr.io/ppiankov/runforge:{{ .Version }}-amd64"
+      - "ghcr.io/ppiankov/runforge:{{ .Version }}-arm64"
