@@ -5,7 +5,7 @@ import "fmt"
 // Graph represents a directed acyclic graph of tasks.
 type Graph struct {
 	tasks    map[string]*Task
-	deps     map[string]string   // child → parent (depends_on)
+	deps     map[string][]string // child → parents (depends_on)
 	children map[string][]string // parent → children
 	order    []string            // topological order
 }
@@ -15,16 +15,16 @@ type Graph struct {
 func BuildGraph(tasks []Task) (*Graph, error) {
 	g := &Graph{
 		tasks:    make(map[string]*Task, len(tasks)),
-		deps:     make(map[string]string),
+		deps:     make(map[string][]string),
 		children: make(map[string][]string),
 	}
 
 	for i := range tasks {
 		t := &tasks[i]
 		g.tasks[t.ID] = t
-		if t.DependsOn != "" {
-			g.deps[t.ID] = t.DependsOn
-			g.children[t.DependsOn] = append(g.children[t.DependsOn], t.ID)
+		for _, dep := range t.DependsOn {
+			g.deps[t.ID] = append(g.deps[t.ID], dep)
+			g.children[dep] = append(g.children[dep], t.ID)
 		}
 	}
 
@@ -47,7 +47,7 @@ func (g *Graph) Order() []string {
 func (g *Graph) Roots() []string {
 	var roots []string
 	for id := range g.tasks {
-		if _, hasDep := g.deps[id]; !hasDep {
+		if len(g.deps[id]) == 0 {
 			roots = append(roots, id)
 		}
 	}
@@ -58,6 +58,11 @@ func (g *Graph) Roots() []string {
 // Children returns IDs that depend on the given task.
 func (g *Graph) Children(id string) []string {
 	return g.children[id]
+}
+
+// Deps returns the parent task IDs that the given task depends on.
+func (g *Graph) Deps(id string) []string {
+	return g.deps[id]
 }
 
 // Task returns the task for an ID.
@@ -95,10 +100,8 @@ func (g *Graph) topoSort() ([]string, error) {
 	for id := range g.tasks {
 		inDegree[id] = 0
 	}
-	for id, dep := range g.deps {
-		_ = id
-		_ = dep
-		inDegree[id]++
+	for id, parents := range g.deps {
+		inDegree[id] += len(parents)
 	}
 
 	// seed queue with zero in-degree nodes

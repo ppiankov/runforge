@@ -47,8 +47,8 @@ func TestScheduler_AllSucceed(t *testing.T) {
 func TestScheduler_DependencyChain(t *testing.T) {
 	tasks := []Task{
 		{ID: "t1", Repo: "org/r", Priority: 1, Title: "T1", Prompt: "a"},
-		{ID: "t2", Repo: "org/r", Priority: 1, DependsOn: "t1", Title: "T2", Prompt: "b"},
-		{ID: "t3", Repo: "org/r", Priority: 1, DependsOn: "t2", Title: "T3", Prompt: "c"},
+		{ID: "t2", Repo: "org/r", Priority: 1, DependsOn: []string{"t1"}, Title: "T2", Prompt: "b"},
+		{ID: "t3", Repo: "org/r", Priority: 1, DependsOn: []string{"t2"}, Title: "T3", Prompt: "c"},
 	}
 
 	g, err := BuildGraph(tasks)
@@ -98,8 +98,8 @@ func TestScheduler_DependencyChain(t *testing.T) {
 func TestScheduler_FailureSkipsDependents(t *testing.T) {
 	tasks := []Task{
 		{ID: "root", Repo: "org/r", Priority: 1, Title: "Root", Prompt: "a"},
-		{ID: "child", Repo: "org/r", Priority: 1, DependsOn: "root", Title: "Child", Prompt: "b"},
-		{ID: "grandchild", Repo: "org/r", Priority: 1, DependsOn: "child", Title: "GC", Prompt: "c"},
+		{ID: "child", Repo: "org/r", Priority: 1, DependsOn: []string{"root"}, Title: "Child", Prompt: "b"},
+		{ID: "grandchild", Repo: "org/r", Priority: 1, DependsOn: []string{"child"}, Title: "GC", Prompt: "c"},
 		{ID: "independent", Repo: "org/r", Priority: 1, Title: "Ind", Prompt: "d"},
 	}
 
@@ -251,7 +251,7 @@ func TestScheduler_FailFast(t *testing.T) {
 	tasks := []Task{
 		{ID: "a", Repo: "org/r", Priority: 1, Title: "A", Prompt: "a"},
 		{ID: "b", Repo: "org/r", Priority: 1, Title: "B", Prompt: "b"},
-		{ID: "c", Repo: "org/r", Priority: 1, DependsOn: "a", Title: "C", Prompt: "c"},
+		{ID: "c", Repo: "org/r", Priority: 1, DependsOn: []string{"a"}, Title: "C", Prompt: "c"},
 	}
 
 	g, err := BuildGraph(tasks)
@@ -347,6 +347,173 @@ func TestScheduler_ContextTimeout(t *testing.T) {
 
 	if results["slow"].State != StateFailed {
 		t.Errorf("slow: expected FAILED (timeout), got %s", results["slow"].State)
+	}
+}
+
+func TestScheduler_FanIn(t *testing.T) {
+	// child depends on both p1 and p2 — should only run after both complete
+	tasks := []Task{
+		{ID: "p1", Repo: "org/r", Priority: 1, Title: "P1", Prompt: "a"},
+		{ID: "p2", Repo: "org/r", Priority: 1, Title: "P2", Prompt: "b"},
+		{ID: "child", Repo: "org/r", Priority: 1, DependsOn: []string{"p1", "p2"}, Title: "Child", Prompt: "c"},
+	}
+
+	g, err := BuildGraph(tasks)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	var order []string
+	var mu sync.Mutex
+
+	execFn := func(_ context.Context, task *Task, _, _ string) *TaskResult {
+		mu.Lock()
+		order = append(order, task.ID)
+		mu.Unlock()
+		return &TaskResult{
+			TaskID:  task.ID,
+			State:   StateCompleted,
+			EndedAt: time.Now(),
+		}
+	}
+
+	sched := NewScheduler(g, SchedulerConfig{
+		Workers:  4,
+		ReposDir: "/tmp",
+		RunDir:   "/tmp/run",
+		ExecFn:   execFn,
+	})
+
+	results := sched.Run(context.Background())
+
+	// All should complete
+	for id, r := range results {
+		if r.State != StateCompleted {
+			t.Errorf("task %s: expected COMPLETED, got %s", id, r.State)
+		}
+	}
+
+	mu.Lock()
+	defer mu.Unlock()
+
+	if len(order) != 3 {
+		t.Fatalf("expected 3 executions, got %d", len(order))
+	}
+
+	childIdx := indexOf(order, "child")
+	p1Idx := indexOf(order, "p1")
+	p2Idx := indexOf(order, "p2")
+
+	if p1Idx > childIdx || p2Idx > childIdx {
+		t.Errorf("child ran before both parents completed: %v", order)
+	}
+}
+
+func TestScheduler_FanInPartialFailure(t *testing.T) {
+	// child depends on p1 and p2; p1 fails → child should be skipped
+	tasks := []Task{
+		{ID: "p1", Repo: "org/r", Priority: 1, Title: "P1", Prompt: "a"},
+		{ID: "p2", Repo: "org/r", Priority: 1, Title: "P2", Prompt: "b"},
+		{ID: "child", Repo: "org/r", Priority: 1, DependsOn: []string{"p1", "p2"}, Title: "Child", Prompt: "c"},
+	}
+
+	g, err := BuildGraph(tasks)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	execFn := func(_ context.Context, task *Task, _, _ string) *TaskResult {
+		if task.ID == "p1" {
+			return &TaskResult{
+				TaskID:  task.ID,
+				State:   StateFailed,
+				Error:   "simulated failure",
+				EndedAt: time.Now(),
+			}
+		}
+		return &TaskResult{
+			TaskID:  task.ID,
+			State:   StateCompleted,
+			EndedAt: time.Now(),
+		}
+	}
+
+	sched := NewScheduler(g, SchedulerConfig{
+		Workers:  2,
+		ReposDir: "/tmp",
+		RunDir:   "/tmp/run",
+		ExecFn:   execFn,
+	})
+
+	results := sched.Run(context.Background())
+
+	if results["p1"].State != StateFailed {
+		t.Errorf("p1: expected FAILED, got %s", results["p1"].State)
+	}
+	if results["p2"].State != StateCompleted {
+		t.Errorf("p2: expected COMPLETED, got %s", results["p2"].State)
+	}
+	if results["child"].State != StateSkipped {
+		t.Errorf("child: expected SKIPPED (parent failed), got %s", results["child"].State)
+	}
+}
+
+func TestScheduler_Diamond(t *testing.T) {
+	// A → B, A → C, B+C → D
+	tasks := []Task{
+		{ID: "a", Repo: "org/r", Priority: 1, Title: "A", Prompt: "a"},
+		{ID: "b", Repo: "org/r", Priority: 1, DependsOn: []string{"a"}, Title: "B", Prompt: "b"},
+		{ID: "c", Repo: "org/r", Priority: 1, DependsOn: []string{"a"}, Title: "C", Prompt: "c"},
+		{ID: "d", Repo: "org/r", Priority: 1, DependsOn: []string{"b", "c"}, Title: "D", Prompt: "d"},
+	}
+
+	g, err := BuildGraph(tasks)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	var order []string
+	var mu sync.Mutex
+
+	execFn := func(_ context.Context, task *Task, _, _ string) *TaskResult {
+		mu.Lock()
+		order = append(order, task.ID)
+		mu.Unlock()
+		return &TaskResult{
+			TaskID:  task.ID,
+			State:   StateCompleted,
+			EndedAt: time.Now(),
+		}
+	}
+
+	sched := NewScheduler(g, SchedulerConfig{
+		Workers:  4,
+		ReposDir: "/tmp",
+		RunDir:   "/tmp/run",
+		ExecFn:   execFn,
+	})
+
+	results := sched.Run(context.Background())
+
+	for id, r := range results {
+		if r.State != StateCompleted {
+			t.Errorf("task %s: expected COMPLETED, got %s", id, r.State)
+		}
+	}
+
+	mu.Lock()
+	defer mu.Unlock()
+
+	if len(order) != 4 {
+		t.Fatalf("expected 4 executions, got %d", len(order))
+	}
+
+	dIdx := indexOf(order, "d")
+	bIdx := indexOf(order, "b")
+	cIdx := indexOf(order, "c")
+
+	if bIdx > dIdx || cIdx > dIdx {
+		t.Errorf("d ran before both b and c: %v", order)
 	}
 }
 

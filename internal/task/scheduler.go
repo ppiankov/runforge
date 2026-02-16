@@ -178,15 +178,24 @@ func (s *Scheduler) unlockChildren(id string) {
 
 		s.mu.Lock()
 		r := s.results[childID]
+		shouldStart := false
 		if r.State == StatePending {
-			// check if all deps are satisfied (for future multi-dep support)
-			r.State = StateReady
+			allDone := true
+			for _, parentID := range s.graph.Deps(childID) {
+				if s.results[parentID].State != StateCompleted {
+					allDone = false
+					break
+				}
+			}
+			if allDone {
+				r.State = StateReady
+				shouldStart = true
+			}
 		}
 		s.mu.Unlock()
 
-		if r.State == StateReady {
+		if shouldStart {
 			s.notify(childID)
-			// spawn inline — workers are already running
 			go s.execute(context.Background(), childID)
 		}
 	}

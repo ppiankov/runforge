@@ -1,6 +1,9 @@
 package task
 
-import "time"
+import (
+	"encoding/json"
+	"time"
+)
 
 // TaskState represents the execution state of a task.
 type TaskState int
@@ -35,13 +38,51 @@ func (s TaskState) String() string {
 
 // Task represents a single work order from the tasks file.
 type Task struct {
-	ID        string `json:"id"`
-	Repo      string `json:"repo"`
-	Priority  int    `json:"priority"`
-	DependsOn string `json:"depends_on,omitempty"`
-	Title     string `json:"title"`
-	Prompt    string `json:"prompt"`
-	Runner    string `json:"runner,omitempty"` // default: "codex"
+	ID        string   `json:"id"`
+	Repo      string   `json:"repo"`
+	Priority  int      `json:"priority"`
+	DependsOn []string `json:"depends_on,omitempty"`
+	Title     string   `json:"title"`
+	Prompt    string   `json:"prompt"`
+	Runner    string   `json:"runner,omitempty"` // default: "codex"
+}
+
+// UnmarshalJSON supports both string and array formats for depends_on.
+// String: "depends_on": "task-a" → []string{"task-a"}
+// Array:  "depends_on": ["task-a", "task-b"] → []string{"task-a", "task-b"}
+func (t *Task) UnmarshalJSON(data []byte) error {
+	type Alias Task
+	aux := &struct {
+		DependsOn json.RawMessage `json:"depends_on,omitempty"`
+		*Alias
+	}{
+		Alias: (*Alias)(t),
+	}
+
+	if err := json.Unmarshal(data, aux); err != nil {
+		return err
+	}
+
+	if len(aux.DependsOn) == 0 || string(aux.DependsOn) == "null" {
+		return nil
+	}
+
+	// Try string first.
+	var s string
+	if err := json.Unmarshal(aux.DependsOn, &s); err == nil {
+		if s != "" {
+			t.DependsOn = []string{s}
+		}
+		return nil
+	}
+
+	// Try array.
+	var arr []string
+	if err := json.Unmarshal(aux.DependsOn, &arr); err != nil {
+		return err
+	}
+	t.DependsOn = arr
+	return nil
 }
 
 // TaskFile is the top-level structure of the tasks JSON file.
