@@ -24,11 +24,12 @@ type SchedulerConfig struct {
 
 // Scheduler manages dependency-aware parallel task execution.
 type Scheduler struct {
-	cfg      SchedulerConfig
-	graph    *Graph
-	results  map[string]*TaskResult
-	mu       sync.Mutex
-	stopping atomic.Bool // set when fail-fast triggered
+	cfg         SchedulerConfig
+	graph       *Graph
+	results     map[string]*TaskResult
+	mu          sync.Mutex
+	stopping    atomic.Bool // set when fail-fast triggered
+	rateLimited atomic.Bool // set when rate limit detected
 }
 
 // NewScheduler creates a scheduler for the given task graph.
@@ -64,8 +65,13 @@ func (s *Scheduler) Run(ctx context.Context) map[string]*TaskResult {
 					s.mu.Lock()
 					r := s.results[id]
 					if r.State == StateReady {
-						r.State = StateSkipped
-						r.Error = "fail-fast: stopped after failure"
+						if s.rateLimited.Load() {
+							r.State = StateRateLimited
+							r.Error = "rate limit reached"
+						} else {
+							r.State = StateSkipped
+							r.Error = "fail-fast: stopped after failure"
+						}
 					}
 					s.mu.Unlock()
 					s.notify(id)
@@ -150,9 +156,14 @@ func (s *Scheduler) execute(ctx context.Context, id string) {
 	s.notify(id)
 
 	// handle dependents
-	if result.State == StateCompleted {
+	switch result.State {
+	case StateCompleted:
 		s.unlockChildren(id)
-	} else {
+	case StateRateLimited:
+		s.rateLimited.Store(true)
+		s.stopping.Store(true)
+		s.rateLimitRemaining(result.ResetsAt)
+	default:
 		if s.cfg.FailFast {
 			s.stopping.Store(true)
 		}
@@ -163,13 +174,18 @@ func (s *Scheduler) execute(ctx context.Context, id string) {
 func (s *Scheduler) unlockChildren(id string) {
 	children := s.graph.Children(id)
 	for _, childID := range children {
-		// fail-fast: skip new tasks when stopping
+		// fail-fast or rate-limit: skip new tasks when stopping
 		if s.stopping.Load() {
 			s.mu.Lock()
 			r := s.results[childID]
 			if r.State == StatePending || r.State == StateReady {
-				r.State = StateSkipped
-				r.Error = "fail-fast: stopped after failure"
+				if s.rateLimited.Load() {
+					r.State = StateRateLimited
+					r.Error = "rate limit reached"
+				} else {
+					r.State = StateSkipped
+					r.Error = "fail-fast: stopped after failure"
+				}
 			}
 			s.mu.Unlock()
 			s.notify(childID)
@@ -199,6 +215,19 @@ func (s *Scheduler) unlockChildren(id string) {
 			go s.execute(context.Background(), childID)
 		}
 	}
+}
+
+// rateLimitRemaining marks all non-terminal tasks as rate-limited.
+func (s *Scheduler) rateLimitRemaining(resetsAt time.Time) {
+	s.mu.Lock()
+	for _, r := range s.results {
+		if r.State == StatePending || r.State == StateReady {
+			r.State = StateRateLimited
+			r.ResetsAt = resetsAt
+			r.Error = "rate limit reached"
+		}
+	}
+	s.mu.Unlock()
 }
 
 func (s *Scheduler) skipDependents(id string) {
