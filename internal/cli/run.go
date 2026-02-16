@@ -99,6 +99,7 @@ func runTasks(tasksFile string, workers int, verify bool, reposDir, filter strin
 
 	report, err := executeRun(execRunConfig{
 		tasksFile:  tasksFile,
+		taskFile:   tf,
 		tasks:      tasks,
 		graph:      graph,
 		workers:    workers,
@@ -133,6 +134,7 @@ func runTasks(tasksFile string, workers int, verify bool, reposDir, filter strin
 // execRunConfig holds parameters for executeRun.
 type execRunConfig struct {
 	tasksFile  string
+	taskFile   *task.TaskFile // full parsed file with profiles
 	tasks      []task.Task
 	graph      *task.Graph
 	workers    int
@@ -186,32 +188,25 @@ func executeRun(cfg execRunConfig) (*execRunResult, error) {
 		cancel()
 	}()
 
-	// create runner registry
-	runners := map[string]runner.Runner{
-		"codex":  runner.NewCodexRunner(),
-		"claude": runner.NewClaudeRunner(),
-		"script": runner.NewScriptRunner(),
+	// build runner registry from profiles
+	tf := cfg.taskFile
+	if tf == nil {
+		tf = &task.TaskFile{}
 	}
-	const defaultRunner = "codex"
+	runners, err := buildRunnerRegistry(tf)
+	if err != nil {
+		return nil, fmt.Errorf("build runner registry: %w", err)
+	}
+
+	defaultRunner := tf.DefaultRunner
+	if defaultRunner == "" {
+		defaultRunner = "codex"
+	}
+	blacklist := runner.NewRunnerBlacklist()
 
 	execFn := func(ctx context.Context, t *task.Task, repoDir, outputDir string) *task.TaskResult {
-		taskCtx, taskCancel := context.WithTimeout(ctx, cfg.maxRuntime)
-		defer taskCancel()
-
-		name := t.Runner
-		if name == "" {
-			name = defaultRunner
-		}
-		r, ok := runners[name]
-		if !ok {
-			return &task.TaskResult{
-				TaskID:  t.ID,
-				State:   task.StateFailed,
-				Error:   fmt.Sprintf("unknown runner: %q", name),
-				EndedAt: time.Now(),
-			}
-		}
-		return r.Run(taskCtx, t, repoDir, outputDir)
+		cascade := resolveRunnerCascade(t, defaultRunner, tf.DefaultFallbacks)
+		return RunWithCascade(ctx, t, repoDir, outputDir, runners, cascade, cfg.maxRuntime, blacklist)
 	}
 
 	// run scheduler

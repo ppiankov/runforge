@@ -16,11 +16,18 @@ import (
 )
 
 // CodexRunner spawns codex exec processes and parses their JSONL output.
-type CodexRunner struct{}
+type CodexRunner struct {
+	env []string // additional env vars for the subprocess
+}
 
 // NewCodexRunner creates a new CodexRunner.
 func NewCodexRunner() *CodexRunner {
 	return &CodexRunner{}
+}
+
+// NewCodexRunnerWithEnv creates a CodexRunner with custom environment variables.
+func NewCodexRunnerWithEnv(env map[string]string) *CodexRunner {
+	return &CodexRunner{env: MapToEnvSlice(env)}
 }
 
 // Name returns the runner identifier.
@@ -49,6 +56,9 @@ func (r *CodexRunner) Run(ctx context.Context, t *task.Task, repoDir, outputDir 
 
 	cmd := exec.CommandContext(ctx, "codex", args...)
 	cmd.Dir = repoDir
+	if len(r.env) > 0 {
+		cmd.Env = append(os.Environ(), r.env...)
+	}
 	rlw := newRateLimitWriter(newLogWriter(outputDir, "stderr.log"))
 	cmd.Stderr = rlw
 
