@@ -13,7 +13,10 @@ var (
 	Commit  = "none"
 )
 
-var verbose bool
+var (
+	verbose    bool
+	configFile string
+)
 
 func NewRootCmd() *cobra.Command {
 	root := &cobra.Command{
@@ -34,6 +37,7 @@ func NewRootCmd() *cobra.Command {
 	}
 
 	root.PersistentFlags().BoolVarP(&verbose, "verbose", "v", false, "enable debug logging")
+	root.PersistentFlags().StringVar(&configFile, "config", ".runforge.yml", "path to config file")
 
 	root.AddCommand(newRunCmd())
 	root.AddCommand(newRerunCmd())
