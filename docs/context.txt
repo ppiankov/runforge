@@ -1,0 +1,68 @@
+# Runforge — Session Context
+
+## What it is
+Dependency-aware parallel task runner for AI agents. Reads a JSON task file, builds a DAG, executes tasks across repos using pluggable runner backends (Codex, Claude, script).
+
+## What it is NOT
+- Not a CI/CD system (no triggers, no pipelines)
+- Not an agent framework (no prompt engineering, no model selection)
+- Not a workflow engine (no conditionals, no loops, no retries)
+
+## Current state (v0.1.0)
+- Core working: JSON parsing, DAG scheduling, Codex runner, text/JSON reporters
+- Guardrails: --max-runtime, --fail-fast, allowed_repos validation
+- Runner interface: pluggable backends, codex implemented
+- CLI: run, status, verify subcommands
+- Tests pass with -race, golangci-lint clean
+- GoReleaser + Homebrew configured, CI/release workflows ready
+- Directory is still named `codexrun/` — rename to `runforge/` pending
+
+## Architecture
+```
+cmd/runforge/main.go           → Cobra entry point
+internal/cli/                  → Commands: run, status, verify, version
+internal/config/               → Task file parsing + validation
+internal/task/
+  model.go                     → Task, TaskResult, RunReport, TaskState
+  graph.go                     → DAG: BuildGraph, Roots, topoSort (Kahn's)
+  scheduler.go                 → Worker pool, dependency unlock, fail-fast
+internal/runner/
+  runner.go                    → Runner interface (Name, Run)
+  codex.go                     → Codex backend (JSONL failure detection)
+  verifier.go                  → make test/lint verification
+internal/reporter/
+  text.go                      → Terminal output (ANSI when TTY)
+  json.go                      → JSON report writer
+```
+
+## Key design decisions
+- Codex exits 0 on failure — must parse JSONL for `turn.failed` events
+- Fail-fast uses atomic.Bool checked in worker loop + unlockChildren
+- Context timeout wraps per-task execution (not global)
+- DependsOn is currently single string — WO-1 changes to array
+- Runner resolved via registry map in run.go; default is "codex"
+
+## Pending work orders (priority order)
+- WO-9: Generate command (scan work-orders.md, emit task file) — HIGH
+- WO-1: Multi-dependency support (DependsOn string → []string) — HIGH
+- WO-2: Script runner backend (sh -c execution) — HIGH
+- WO-6: Validate command (structural prevention) — HIGH
+- WO-3: Claude runner backend — MEDIUM
+- WO-4: Live terminal status — MEDIUM
+- WO-8: Rerun failed tasks — MEDIUM
+- WO-5: SARIF report output — LOW
+- WO-7: Config file (.runforge.yml) — LOW
+
+## Verification commands
+```bash
+make build          # Build binary
+make test           # Tests with -race
+make lint           # golangci-lint
+make fmt            # gofmt/goimports
+```
+
+## Integration with claude-skills
+- `/runforge generate` skill scans repos for work-orders.md and builds task file
+- `/runforge run` generates ready-to-paste command
+- `/runforge status` reads latest report
+- `/codex` handles single-task offload; `/runforge` handles batch
