@@ -189,6 +189,7 @@ func executeRun(cfg execRunConfig) (*execRunResult, error) {
 	// create runner registry
 	runners := map[string]runner.Runner{
 		"codex":  runner.NewCodexRunner(),
+		"claude": runner.NewClaudeRunner(),
 		"script": runner.NewScriptRunner(),
 	}
 	const defaultRunner = "codex"
