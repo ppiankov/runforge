@@ -158,8 +158,20 @@ func runTasks(tasksFile string, workers int, verify bool, reposDir, filter strin
 		},
 	})
 
+	// start live display if TTY
+	var live *reporter.LiveReporter
+	if isTTY {
+		live = reporter.NewLiveReporter(os.Stdout, true, graph, sched.Results)
+		live.Start()
+	}
+
 	results := sched.Run(ctx)
 	totalDuration := time.Since(start)
+
+	// stop live display before printing final status
+	if live != nil {
+		live.Stop()
+	}
 
 	// build report
 	report := buildReport(tasksFile, workers, filter, reposDir, results, totalDuration)
