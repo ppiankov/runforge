@@ -119,7 +119,8 @@ func runTasks(tasksFile string, workers int, verify bool, reposDir, filter strin
 
 	// create runner registry
 	runners := map[string]runner.Runner{
-		"codex": runner.NewCodexRunner(),
+		"codex":  runner.NewCodexRunner(),
+		"script": runner.NewScriptRunner(),
 	}
 	const defaultRunner = "codex"
 
