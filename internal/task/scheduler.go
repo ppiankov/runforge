@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"sync"
+	"sync/atomic"
 	"time"
 )
 
@@ -18,14 +19,16 @@ type SchedulerConfig struct {
 	RunDir   string
 	ExecFn   ExecFn
 	OnUpdate func(id string, result *TaskResult) // called on state changes
+	FailFast bool                                // stop spawning on first failure
 }
 
 // Scheduler manages dependency-aware parallel task execution.
 type Scheduler struct {
-	cfg     SchedulerConfig
-	graph   *Graph
-	results map[string]*TaskResult
-	mu      sync.Mutex
+	cfg      SchedulerConfig
+	graph    *Graph
+	results  map[string]*TaskResult
+	mu       sync.Mutex
+	stopping atomic.Bool // set when fail-fast triggered
 }
 
 // NewScheduler creates a scheduler for the given task graph.
@@ -57,6 +60,17 @@ func (s *Scheduler) Run(ctx context.Context) map[string]*TaskResult {
 		go func() {
 			defer wg.Done()
 			for id := range work {
+				if s.stopping.Load() {
+					s.mu.Lock()
+					r := s.results[id]
+					if r.State == StateReady {
+						r.State = StateSkipped
+						r.Error = "fail-fast: stopped after failure"
+					}
+					s.mu.Unlock()
+					s.notify(id)
+					continue
+				}
 				s.execute(ctx, id)
 			}
 		}()
@@ -139,6 +153,9 @@ func (s *Scheduler) execute(ctx context.Context, id string) {
 	if result.State == StateCompleted {
 		s.unlockChildren(id)
 	} else {
+		if s.cfg.FailFast {
+			s.stopping.Store(true)
+		}
 		s.skipDependents(id)
 	}
 }
@@ -146,6 +163,19 @@ func (s *Scheduler) execute(ctx context.Context, id string) {
 func (s *Scheduler) unlockChildren(id string) {
 	children := s.graph.Children(id)
 	for _, childID := range children {
+		// fail-fast: skip new tasks when stopping
+		if s.stopping.Load() {
+			s.mu.Lock()
+			r := s.results[childID]
+			if r.State == StatePending || r.State == StateReady {
+				r.State = StateSkipped
+				r.Error = "fail-fast: stopped after failure"
+			}
+			s.mu.Unlock()
+			s.notify(childID)
+			continue
+		}
+
 		s.mu.Lock()
 		r := s.results[childID]
 		if r.State == StatePending {

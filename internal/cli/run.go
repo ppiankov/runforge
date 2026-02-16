@@ -20,33 +20,37 @@ import (
 
 func newRunCmd() *cobra.Command {
 	var (
-		tasksFile string
-		workers   int
-		verify    bool
-		reposDir  string
-		filter    string
-		dryRun    bool
+		tasksFile  string
+		workers    int
+		verify     bool
+		reposDir   string
+		filter     string
+		dryRun     bool
+		maxRuntime time.Duration
+		failFast   bool
 	)
 
 	cmd := &cobra.Command{
 		Use:   "run",
-		Short: "Execute codex tasks with dependency-aware parallelism",
+		Short: "Execute tasks with dependency-aware parallelism",
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return runTasks(tasksFile, workers, verify, reposDir, filter, dryRun)
+			return runTasks(tasksFile, workers, verify, reposDir, filter, dryRun, maxRuntime, failFast)
 		},
 	}
 
 	cmd.Flags().StringVar(&tasksFile, "tasks", "codex-tasks.json", "path to tasks JSON file")
-	cmd.Flags().IntVar(&workers, "workers", 4, "max parallel codex processes")
+	cmd.Flags().IntVar(&workers, "workers", 4, "max parallel runner processes")
 	cmd.Flags().BoolVar(&verify, "verify", false, "run make test && make lint per repo after completion")
 	cmd.Flags().StringVar(&reposDir, "repos-dir", ".", "base directory containing repos")
 	cmd.Flags().StringVar(&filter, "filter", "", "only run tasks matching ID glob pattern")
 	cmd.Flags().BoolVar(&dryRun, "dry-run", false, "show execution plan without running")
+	cmd.Flags().DurationVar(&maxRuntime, "max-runtime", 30*time.Minute, "per-task timeout duration")
+	cmd.Flags().BoolVar(&failFast, "fail-fast", false, "stop spawning new tasks on first failure")
 
 	return cmd
 }
 
-func runTasks(tasksFile string, workers int, verify bool, reposDir, filter string, dryRun bool) error {
+func runTasks(tasksFile string, workers int, verify bool, reposDir, filter string, dryRun bool, maxRuntime time.Duration, failFast bool) error {
 	// load tasks
 	tf, err := config.Load(tasksFile)
 	if err != nil {
@@ -120,6 +124,10 @@ func runTasks(tasksFile string, workers int, verify bool, reposDir, filter strin
 	const defaultRunner = "codex"
 
 	execFn := func(ctx context.Context, t *task.Task, repoDir, outputDir string) *task.TaskResult {
+		// apply per-task timeout
+		taskCtx, taskCancel := context.WithTimeout(ctx, maxRuntime)
+		defer taskCancel()
+
 		name := t.Runner
 		if name == "" {
 			name = defaultRunner
@@ -133,7 +141,7 @@ func runTasks(tasksFile string, workers int, verify bool, reposDir, filter strin
 				EndedAt: time.Now(),
 			}
 		}
-		return r.Run(ctx, t, repoDir, outputDir)
+		return r.Run(taskCtx, t, repoDir, outputDir)
 	}
 
 	// run scheduler
@@ -143,6 +151,7 @@ func runTasks(tasksFile string, workers int, verify bool, reposDir, filter strin
 		ReposDir: reposDir,
 		RunDir:   runDir,
 		ExecFn:   execFn,
+		FailFast: failFast,
 		OnUpdate: func(id string, result *task.TaskResult) {
 			slog.Debug("task update", "task", id, "state", result.State)
 		},
