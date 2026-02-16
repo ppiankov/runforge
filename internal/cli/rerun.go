@@ -26,7 +26,11 @@ func newRerunCmd() *cobra.Command {
 		Use:   "rerun",
 		Short: "Re-execute failed, skipped, and rate-limited tasks from a previous run",
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return rerunTasks(runDir, workers, reposDir, maxRuntime, failFast)
+			cfg, err := config.LoadSettings(configFile)
+			if err != nil {
+				return fmt.Errorf("load config: %w", err)
+			}
+			return rerunTasks(runDir, workers, reposDir, maxRuntime, failFast, cfg.PostRun)
 		},
 	}
 
@@ -40,7 +44,7 @@ func newRerunCmd() *cobra.Command {
 	return cmd
 }
 
-func rerunTasks(runDir string, workers int, reposDir string, maxRuntime time.Duration, failFast bool) error {
+func rerunTasks(runDir string, workers int, reposDir string, maxRuntime time.Duration, failFast bool, postRun string) error {
 	// load previous report
 	reportPath := filepath.Join(runDir, "report.json")
 	prevReport, err := reporter.ReadJSONReport(reportPath)
@@ -146,6 +150,7 @@ func rerunTasks(runDir string, workers int, reposDir string, maxRuntime time.Dur
 		reposDir:   reposDir,
 		maxRuntime: maxRuntime,
 		failFast:   failFast,
+		postRun:    postRun,
 	})
 	if err != nil {
 		return err

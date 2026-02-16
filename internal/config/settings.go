@@ -16,6 +16,7 @@ type Settings struct {
 	MaxRuntime time.Duration `yaml:"max_runtime"`
 	FailFast   bool          `yaml:"fail_fast"`
 	Verify     bool          `yaml:"verify"`
+	PostRun    string        `yaml:"post_run"` // shell command to run after report is written; $RUNFORGE_RUN_DIR is set
 }
 
 // LoadSettings reads a YAML config file into Settings.

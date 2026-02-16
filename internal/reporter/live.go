@@ -237,12 +237,16 @@ func (lr *LiveReporter) formatFailed(res *task.TaskResult) string {
 func (lr *LiveReporter) formatRunning(res *task.TaskResult, spinner string) string {
 	t := lr.graph.Task(res.TaskID)
 	title := ""
+	runnerTag := ""
 	if t != nil {
 		title = t.Title
+		if t.Runner != "" {
+			runnerTag = " [" + t.Runner + "]"
+		}
 	}
 	elapsed := time.Since(res.StartedAt).Truncate(time.Second)
-	return fmt.Sprintf("  %s%s %-10s %-25s %-30s %s%s",
-		lr.c(colorCyan), spinner, "running", res.TaskID, title, elapsed, lr.c(colorReset))
+	return fmt.Sprintf("  %s%s %-10s %-25s %-30s %s%s%s",
+		lr.c(colorCyan), spinner, "running", res.TaskID, title, elapsed, runnerTag, lr.c(colorReset))
 }
 
 func (lr *LiveReporter) formatCompleted(res *task.TaskResult) string {
@@ -252,8 +256,12 @@ func (lr *LiveReporter) formatCompleted(res *task.TaskResult) string {
 		title = t.Title
 	}
 	dur := res.Duration.Truncate(time.Second)
-	return fmt.Sprintf("  %s✓ %-10s %-25s %-30s %s%s",
-		lr.c(colorGreen), "done", res.TaskID, title, dur, lr.c(colorReset))
+	suffix := ""
+	if res.RunnerUsed != "" && len(res.Attempts) > 1 {
+		suffix = " [via " + res.RunnerUsed + "]"
+	}
+	return fmt.Sprintf("  %s✓ %-10s %-25s %-30s %s%s%s",
+		lr.c(colorGreen), "done", res.TaskID, title, dur, suffix, lr.c(colorReset))
 }
 
 func (lr *LiveReporter) formatRateLimited(res *task.TaskResult) string {
