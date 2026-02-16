@@ -105,7 +105,15 @@ type TaskFile struct {
 	DefaultRunner    string                          `json:"default_runner,omitempty"`    // default: "codex"
 	DefaultFallbacks []string                        `json:"default_fallbacks,omitempty"` // applied when task has no fallbacks
 	Runners          map[string]*RunnerProfileConfig `json:"runners,omitempty"`           // named runner profiles
+	Review           *ReviewConfig                   `json:"review,omitempty"`            // auto-review config
 	Tasks            []Task                          `json:"tasks"`
+}
+
+// ReviewConfig controls automatic review of completed tasks.
+type ReviewConfig struct {
+	Enabled      bool   `json:"enabled"`
+	Runner       string `json:"runner,omitempty"`        // explicit reviewer; if empty, auto-pick
+	FallbackOnly bool   `json:"fallback_only,omitempty"` // only review tasks that used a fallback
 }
 
 // AttemptInfo records a single runner attempt within a fallback cascade.
@@ -131,6 +139,16 @@ type TaskResult struct {
 
 	RunnerUsed string        `json:"runner_used,omitempty"` // profile that produced the final result
 	Attempts   []AttemptInfo `json:"attempts,omitempty"`    // all cascade attempts
+	Review     *ReviewResult `json:"review,omitempty"`      // auto-review result
+}
+
+// ReviewResult captures the outcome of an automatic code review.
+type ReviewResult struct {
+	Runner   string        `json:"runner"`
+	Passed   bool          `json:"passed"`
+	Summary  string        `json:"summary,omitempty"`
+	Duration time.Duration `json:"duration,omitempty"`
+	Error    string        `json:"error,omitempty"`
 }
 
 // RunReport is the final output of a runforge execution.

@@ -152,6 +152,13 @@ func (r *TextReporter) PrintSummary(report *task.RunReport) {
 	if fallbackCount > 0 {
 		fmt.Fprintf(r.w, "%sFallback: %d%s  ", r.c(colorYellow), fallbackCount, r.c(colorReset))
 	}
+	reviewed, rPassed, rFailed := reviewStats(report)
+	if reviewed > 0 {
+		fmt.Fprintf(r.w, "Reviewed: %d (%s%d passed%s, %s%d failed%s)  ",
+			reviewed,
+			r.c(colorGreen), rPassed, r.c(colorReset),
+			r.c(colorRed), rFailed, r.c(colorReset))
+	}
 	fmt.Fprintf(r.w, "Duration: %s", report.TotalDuration.Truncate(time.Second))
 	if report.RateLimited > 0 && !report.ResetsAt.IsZero() {
 		remaining := time.Until(report.ResetsAt).Truncate(time.Minute)
@@ -199,12 +206,23 @@ func (r *TextReporter) c(code string) string {
 	return code
 }
 
-// runnerSuffix returns " (via <runner>)" if a fallback runner was used.
+// runnerSuffix returns " (via <runner>)" and review status if applicable.
 func runnerSuffix(res *task.TaskResult) string {
+	var parts []string
 	if res.RunnerUsed != "" && len(res.Attempts) > 1 {
-		return fmt.Sprintf(" (via %s)", res.RunnerUsed)
+		parts = append(parts, fmt.Sprintf("via %s", res.RunnerUsed))
 	}
-	return ""
+	if res.Review != nil {
+		if res.Review.Passed {
+			parts = append(parts, "reviewed ✓")
+		} else {
+			parts = append(parts, "review ✗")
+		}
+	}
+	if len(parts) == 0 {
+		return ""
+	}
+	return " (" + strings.Join(parts, ", ") + ")"
 }
 
 // countFallbacks counts tasks that used a non-primary runner.
@@ -216,4 +234,20 @@ func countFallbacks(report *task.RunReport) int {
 		}
 	}
 	return n
+}
+
+// reviewStats returns (total reviewed, passed, failed).
+func reviewStats(report *task.RunReport) (int, int, int) {
+	var total, passed, failed int
+	for _, r := range report.Results {
+		if r.Review != nil {
+			total++
+			if r.Review.Passed {
+				passed++
+			} else {
+				failed++
+			}
+		}
+	}
+	return total, passed, failed
 }

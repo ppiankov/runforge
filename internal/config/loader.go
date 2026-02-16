@@ -101,6 +101,13 @@ func validate(tf *task.TaskFile) error {
 		}
 	}
 
+	// validate review config
+	if tf.Review != nil && tf.Review.Runner != "" {
+		if _, ok := knownRunners[tf.Review.Runner]; !ok {
+			return fmt.Errorf("review runner %q is not a known runner", tf.Review.Runner)
+		}
+	}
+
 	// validate allowed_repos constraint
 	if len(tf.AllowedRepos) > 0 {
 		allowed := make(map[string]struct{}, len(tf.AllowedRepos))

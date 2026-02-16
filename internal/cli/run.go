@@ -34,6 +34,25 @@ func newRunCmd() *cobra.Command {
 		Use:   "run",
 		Short: "Execute tasks with dependency-aware parallelism",
 		RunE: func(cmd *cobra.Command, args []string) error {
+			cfg, err := config.LoadSettings(configFile)
+			if err != nil {
+				return fmt.Errorf("load config: %w", err)
+			}
+			if !cmd.Flags().Changed("workers") && cfg.Workers > 0 {
+				workers = cfg.Workers
+			}
+			if !cmd.Flags().Changed("repos-dir") && cfg.ReposDir != "" {
+				reposDir = cfg.ReposDir
+			}
+			if !cmd.Flags().Changed("max-runtime") && cfg.MaxRuntime > 0 {
+				maxRuntime = cfg.MaxRuntime
+			}
+			if !cmd.Flags().Changed("fail-fast") && cfg.FailFast {
+				failFast = cfg.FailFast
+			}
+			if !cmd.Flags().Changed("verify") && cfg.Verify {
+				verify = cfg.Verify
+			}
 			return runTasks(tasksFile, workers, verify, reposDir, filter, dryRun, maxRuntime, failFast)
 		},
 	}
@@ -204,6 +223,14 @@ func executeRun(cfg execRunConfig) (*execRunResult, error) {
 	}
 	blacklist := runner.NewRunnerBlacklist()
 
+	// setup review pool if configured
+	var reviewPool *ReviewPool
+	if tf.Review != nil && tf.Review.Enabled {
+		const reviewWorkers = 2
+		reviewPool = NewReviewPool(tf.Review, runners, blacklist, cfg.maxRuntime, reviewWorkers)
+		reviewPool.Start(ctx, reviewWorkers)
+	}
+
 	execFn := func(ctx context.Context, t *task.Task, repoDir, outputDir string) *task.TaskResult {
 		cascade := resolveRunnerCascade(t, defaultRunner, tf.DefaultFallbacks)
 		return RunWithCascade(ctx, t, repoDir, outputDir, runners, cascade, cfg.maxRuntime, blacklist)
@@ -219,6 +246,17 @@ func executeRun(cfg execRunConfig) (*execRunResult, error) {
 		FailFast: cfg.failFast,
 		OnUpdate: func(id string, result *task.TaskResult) {
 			slog.Debug("task update", "task", id, "state", result.State)
+			if reviewPool != nil && result.State == task.StateCompleted {
+				t := cfg.graph.Task(id)
+				if t != nil {
+					reviewPool.Submit(reviewJob{
+						taskID: id,
+						task:   t,
+						result: result,
+						runDir: runDir,
+					})
+				}
+			}
 		},
 	})
 
@@ -234,6 +272,12 @@ func executeRun(cfg execRunConfig) (*execRunResult, error) {
 
 	if live != nil {
 		live.Stop()
+	}
+
+	// wait for reviews to finish before building report
+	if reviewPool != nil {
+		reviewPool.Wait()
+		reviewPool.ApplyResults(results)
 	}
 
 	report := buildReport(cfg.tasksFile, cfg.workers, cfg.filter, cfg.reposDir, results, totalDuration)
