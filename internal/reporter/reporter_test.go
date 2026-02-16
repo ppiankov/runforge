@@ -9,7 +9,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/ppiankov/codexrun/internal/task"
+	"github.com/ppiankov/runforge/internal/task"
 )
 
 func TestTextReporter_PrintHeader(t *testing.T) {

@@ -64,7 +64,7 @@ type TaskResult struct {
 	Error     string        `json:"error,omitempty"`
 }
 
-// RunReport is the final output of a codexrun execution.
+// RunReport is the final output of a runforge execution.
 type RunReport struct {
 	Timestamp     time.Time              `json:"timestamp"`
 	TasksFile     string                 `json:"tasks_file"`

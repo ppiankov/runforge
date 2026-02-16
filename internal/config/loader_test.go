@@ -5,7 +5,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/ppiankov/codexrun/internal/task"
+	"github.com/ppiankov/runforge/internal/task"
 )
 
 func TestLoad_ValidFile(t *testing.T) {

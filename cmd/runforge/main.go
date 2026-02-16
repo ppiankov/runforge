@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/ppiankov/codexrun/internal/cli"
+	"github.com/ppiankov/runforge/internal/cli"
 )
 
 func main() {

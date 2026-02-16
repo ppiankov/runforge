@@ -8,9 +8,9 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/ppiankov/codexrun/internal/config"
-	"github.com/ppiankov/codexrun/internal/runner"
-	"github.com/ppiankov/codexrun/internal/task"
+	"github.com/ppiankov/runforge/internal/config"
+	"github.com/ppiankov/runforge/internal/runner"
+	"github.com/ppiankov/runforge/internal/task"
 )
 
 func newVerifyCmd() *cobra.Command {
@@ -27,7 +27,7 @@ func newVerifyCmd() *cobra.Command {
 		},
 	}
 
-	cmd.Flags().StringVar(&runDir, "run-dir", "", "path to .codexrun/<timestamp> directory (required)")
+	cmd.Flags().StringVar(&runDir, "run-dir", "", "path to .runforge/<timestamp> directory (required)")
 	cmd.Flags().StringVar(&reposDir, "repos-dir", ".", "base directory containing repos")
 	_ = cmd.MarkFlagRequired("run-dir")
 

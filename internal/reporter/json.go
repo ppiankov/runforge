@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/ppiankov/codexrun/internal/task"
+	"github.com/ppiankov/runforge/internal/task"
 )
 
 // WriteJSONReport writes the run report as JSON to the given path.

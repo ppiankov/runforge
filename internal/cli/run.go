@@ -12,10 +12,10 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/ppiankov/codexrun/internal/config"
-	"github.com/ppiankov/codexrun/internal/reporter"
-	"github.com/ppiankov/codexrun/internal/runner"
-	"github.com/ppiankov/codexrun/internal/task"
+	"github.com/ppiankov/runforge/internal/config"
+	"github.com/ppiankov/runforge/internal/reporter"
+	"github.com/ppiankov/runforge/internal/runner"
+	"github.com/ppiankov/runforge/internal/task"
 )
 
 func newRunCmd() *cobra.Command {
@@ -38,7 +38,7 @@ func newRunCmd() *cobra.Command {
 		},
 	}
 
-	cmd.Flags().StringVar(&tasksFile, "tasks", "codex-tasks.json", "path to tasks JSON file")
+	cmd.Flags().StringVar(&tasksFile, "tasks", "runforge.json", "path to tasks JSON file")
 	cmd.Flags().IntVar(&workers, "workers", 4, "max parallel runner processes")
 	cmd.Flags().BoolVar(&verify, "verify", false, "run make test && make lint per repo after completion")
 	cmd.Flags().StringVar(&reposDir, "repos-dir", ".", "base directory containing repos")
@@ -98,7 +98,7 @@ func runTasks(tasksFile string, workers int, verify bool, reposDir, filter strin
 	}
 
 	// prepare run directory
-	runDir := filepath.Join(".codexrun", time.Now().Format("20060102-150405"))
+	runDir := filepath.Join(".runforge", time.Now().Format("20060102-150405"))
 	if err := os.MkdirAll(runDir, 0o755); err != nil {
 		return fmt.Errorf("create run dir: %w", err)
 	}

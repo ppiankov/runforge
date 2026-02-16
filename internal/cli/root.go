@@ -17,9 +17,9 @@ var verbose bool
 
 func NewRootCmd() *cobra.Command {
 	root := &cobra.Command{
-		Use:   "codexrun",
-		Short: "Parallel Codex task orchestrator",
-		Long:  "codexrun reads a codex-tasks.json file and orchestrates parallel codex exec processes with dependency-aware scheduling.",
+		Use:   "runforge",
+		Short: "Dependency-aware parallel task runner",
+		Long:  "runforge reads a task file and orchestrates parallel task runner processes with dependency-aware scheduling.",
 		PersistentPreRun: func(cmd *cobra.Command, args []string) {
 			level := slog.LevelWarn
 			if verbose {

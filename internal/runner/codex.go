@@ -12,7 +12,7 @@ import (
 	"path/filepath"
 	"time"
 
-	"github.com/ppiankov/codexrun/internal/task"
+	"github.com/ppiankov/runforge/internal/task"
 )
 
 // CodexRunner spawns codex exec processes and parses their JSONL output.
@@ -152,7 +152,7 @@ func ParseEventsFromFile(path string) (failed bool, lastMsg string, err error) {
 	defer func() { _ = f.Close() }()
 
 	// use a temp dir for output to avoid overwriting the input file
-	tmpDir, err := os.MkdirTemp("", "codexrun-parse-*")
+	tmpDir, err := os.MkdirTemp("", "runforge-parse-*")
 	if err != nil {
 		return false, "", fmt.Errorf("create temp dir: %w", err)
 	}

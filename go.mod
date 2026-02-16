@@ -1,4 +1,4 @@
-module github.com/ppiankov/codexrun
+module github.com/ppiankov/runforge
 
 go 1.25.7
 

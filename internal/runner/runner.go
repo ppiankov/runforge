@@ -3,7 +3,7 @@ package runner
 import (
 	"context"
 
-	"github.com/ppiankov/codexrun/internal/task"
+	"github.com/ppiankov/runforge/internal/task"
 )
 
 // Runner executes a task and returns its result.

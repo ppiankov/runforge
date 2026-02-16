@@ -6,10 +6,10 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/ppiankov/codexrun/internal/task"
+	"github.com/ppiankov/runforge/internal/task"
 )
 
-// Load reads and validates a codex-tasks.json file.
+// Load reads and validates a runforge task file.
 func Load(path string) (*task.TaskFile, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {

@@ -1,5 +1,5 @@
 bin/
-.codexrun/
+.runforge/
 *.exe
 .DS_Store
 

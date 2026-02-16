@@ -7,7 +7,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/ppiankov/codexrun/internal/task"
+	"github.com/ppiankov/runforge/internal/task"
 )
 
 const (
@@ -37,7 +37,7 @@ func NewTextReporter(w io.Writer, color bool) *TextReporter {
 
 // PrintHeader writes the initial banner.
 func (r *TextReporter) PrintHeader(totalTasks, workers int) {
-	fmt.Fprintf(r.w, "codexrun — %d tasks, %d workers\n\n", totalTasks, workers)
+	fmt.Fprintf(r.w, "runforge — %d tasks, %d workers\n\n", totalTasks, workers)
 }
 
 // PrintStatus writes a snapshot of all task states.

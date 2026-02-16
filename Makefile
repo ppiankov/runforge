@@ -1,13 +1,14 @@
-BINARY    := codexrun
-MODULE    := github.com/ppiankov/codexrun
+BINARY    := runforge
+MODULE    := github.com/ppiankov/runforge
 VERSION   ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
+VERSION_NUM := $(VERSION:v%=%)
 COMMIT    := $(shell git rev-parse --short HEAD 2>/dev/null || echo none)
-LDFLAGS   := -X $(MODULE)/internal/cli.Version=$(VERSION) -X $(MODULE)/internal/cli.Commit=$(COMMIT)
+LDFLAGS   := -X $(MODULE)/internal/cli.Version=$(VERSION_NUM) -X $(MODULE)/internal/cli.Commit=$(COMMIT)
 
 .PHONY: build test lint clean
 
 build:
-	go build -ldflags "$(LDFLAGS)" -o bin/$(BINARY) ./cmd/codexrun
+	go build -ldflags "$(LDFLAGS)" -o bin/$(BINARY) ./cmd/runforge
 
 test:
 	go test -race -cover ./...
