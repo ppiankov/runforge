@@ -2,6 +2,7 @@ package cli
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"log/slog"
 	"os"
@@ -245,6 +246,9 @@ func executeRun(cfg execRunConfig) (*execRunResult, error) {
 		}
 		defer runner.Release(repoDir)
 
+		// save task metadata so output dir is self-contained
+		writeTaskMeta(outputDir, t)
+
 		cascade := resolveRunnerCascade(t, defaultRunner, tf.DefaultFallbacks)
 		return RunWithCascade(ctx, t, repoDir, outputDir, runners, cascade, cfg.maxRuntime, blacklist)
 	}
@@ -319,9 +323,9 @@ func executeRun(cfg execRunConfig) (*execRunResult, error) {
 		hookCmd.Env = append(os.Environ(), "RUNFORGE_RUN_DIR="+absRunDir)
 		hookCmd.Stdout = os.Stdout
 		hookCmd.Stderr = os.Stderr
-		slog.Info("running post_run hook", "command", cfg.postRun)
+		fmt.Fprintf(os.Stdout, "\npost_run: %s\n", cfg.postRun)
 		if err := hookCmd.Run(); err != nil {
-			slog.Warn("post_run hook failed", "error", err)
+			fmt.Fprintf(os.Stderr, "post_run hook FAILED: %v\n", err)
 		}
 	}
 
@@ -434,9 +438,15 @@ func isTerminal() bool {
 	return fi.Mode()&os.ModeCharDevice != 0
 }
 
-const statusFilePath = "/tmp/runforge-status"
+const statusDir = "/tmp/runforge-status.d"
 
-// writeStatusFile writes a one-line status to /tmp/runforge-status for external consumers (e.g. statusline).
+// statusFilePath returns the per-process status file path.
+func statusFilePath() string {
+	return filepath.Join(statusDir, fmt.Sprintf("%d", os.Getpid()))
+}
+
+// writeStatusFile writes a one-line status to a per-PID file for external consumers (e.g. statusline).
+// Multiple runforge processes write separate files; the statusline aggregates them.
 func writeStatusFile(total int, results map[string]*task.TaskResult) {
 	var running, completed, failed, rateLimited int
 	for _, r := range results {
@@ -451,19 +461,36 @@ func writeStatusFile(total int, results map[string]*task.TaskResult) {
 			rateLimited++
 		}
 	}
-	line := fmt.Sprintf("runforge: %d/%d done", completed, total)
+	line := fmt.Sprintf("%d/%d done", completed, total)
 	if running > 0 {
-		line += fmt.Sprintf(", %d running", running)
+		line += fmt.Sprintf(", %d run", running)
 	}
 	if failed > 0 {
-		line += fmt.Sprintf(", %d failed", failed)
+		line += fmt.Sprintf(", %d fail", failed)
 	}
 	if rateLimited > 0 {
-		line += fmt.Sprintf(", %d rate-limited", rateLimited)
+		line += fmt.Sprintf(", %d rl", rateLimited)
 	}
-	_ = os.WriteFile(statusFilePath, []byte(line+"\n"), 0o644)
+	_ = os.MkdirAll(statusDir, 0o755)
+	_ = os.WriteFile(statusFilePath(), []byte(line+"\n"), 0o644)
 }
 
 func removeStatusFile() {
-	_ = os.Remove(statusFilePath)
+	_ = os.Remove(statusFilePath())
+	// clean up directory if empty
+	entries, err := os.ReadDir(statusDir)
+	if err == nil && len(entries) == 0 {
+		_ = os.Remove(statusDir)
+	}
+}
+
+// writeTaskMeta saves a task's metadata (id, repo, prompt, runner) to the output dir
+// so each run output is self-contained without needing the original task file.
+func writeTaskMeta(outputDir string, t *task.Task) {
+	_ = os.MkdirAll(outputDir, 0o755)
+	data, err := json.MarshalIndent(t, "", "  ")
+	if err != nil {
+		return
+	}
+	_ = os.WriteFile(filepath.Join(outputDir, "task.json"), data, 0o644)
 }

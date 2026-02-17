@@ -206,11 +206,21 @@ func (r *TextReporter) c(code string) string {
 	return code
 }
 
-// runnerSuffix returns " (via <runner>)" and review status if applicable.
+// runnerSuffix returns cascade and review info for display.
+// Completed with fallback: " (via zai, reviewed ✓)"
+// Failed after cascade: " (tried codex→zai→claude)"
 func runnerSuffix(res *task.TaskResult) string {
 	var parts []string
-	if res.RunnerUsed != "" && len(res.Attempts) > 1 {
-		parts = append(parts, fmt.Sprintf("via %s", res.RunnerUsed))
+	if len(res.Attempts) > 1 {
+		if res.State == task.StateCompleted && res.RunnerUsed != "" {
+			parts = append(parts, fmt.Sprintf("via %s", res.RunnerUsed))
+		} else {
+			var tried []string
+			for _, a := range res.Attempts {
+				tried = append(tried, a.Runner)
+			}
+			parts = append(parts, fmt.Sprintf("tried %s", strings.Join(tried, "→")))
+		}
 	}
 	if res.Review != nil {
 		if res.Review.Passed {

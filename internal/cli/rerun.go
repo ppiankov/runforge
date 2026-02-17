@@ -30,6 +30,18 @@ func newRerunCmd() *cobra.Command {
 			if err != nil {
 				return fmt.Errorf("load config: %w", err)
 			}
+			if !cmd.Flags().Changed("workers") && cfg.Workers > 0 {
+				workers = cfg.Workers
+			}
+			if !cmd.Flags().Changed("repos-dir") && cfg.ReposDir != "" {
+				reposDir = cfg.ReposDir
+			}
+			if !cmd.Flags().Changed("max-runtime") && cfg.MaxRuntime > 0 {
+				maxRuntime = cfg.MaxRuntime
+			}
+			if !cmd.Flags().Changed("fail-fast") && cfg.FailFast {
+				failFast = cfg.FailFast
+			}
 			return rerunTasks(runDir, workers, reposDir, maxRuntime, failFast, cfg.PostRun)
 		},
 	}
@@ -144,6 +156,7 @@ func rerunTasks(runDir string, workers int, reposDir string, maxRuntime time.Dur
 
 	result, err := executeRun(execRunConfig{
 		tasksFile:  prevReport.TasksFile,
+		taskFile:   tf,
 		tasks:      tasks,
 		graph:      graph,
 		workers:    workers,
