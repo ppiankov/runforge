@@ -7,10 +7,11 @@ import (
 	"github.com/spf13/cobra"
 )
 
-// Version and Commit are set via LDFLAGS at build time.
+// Version, Commit, and BuildDate are set via LDFLAGS at build time.
 var (
-	Version = "dev"
-	Commit  = "none"
+	Version   = "dev"
+	Commit    = "none"
+	BuildDate = "unknown"
 )
 
 var (
