@@ -17,6 +17,18 @@ type Settings struct {
 	FailFast   bool          `yaml:"fail_fast"`
 	Verify     bool          `yaml:"verify"`
 	PostRun    string        `yaml:"post_run"` // shell command to run after report is written; $RUNFORGE_RUN_DIR is set
+
+	// Runner config injected into generated task files
+	DefaultRunner    string                    `yaml:"default_runner"`
+	DefaultFallbacks []string                  `yaml:"default_fallbacks"`
+	Runners          map[string]*RunnerProfile `yaml:"runners"`
+}
+
+// RunnerProfile mirrors task.RunnerProfileConfig for YAML config.
+type RunnerProfile struct {
+	Type  string            `yaml:"type"`
+	Model string            `yaml:"model,omitempty"`
+	Env   map[string]string `yaml:"env,omitempty"`
 }
 
 // LoadSettings reads a YAML config file into Settings.
