@@ -87,6 +87,13 @@ func runTasks(tasksFile string, workers int, verify bool, reposDir, filter strin
 		}
 	}
 
+	// stripe runner assignments for parallel provider utilization
+	defaultRunner := tf.DefaultRunner
+	if defaultRunner == "" {
+		defaultRunner = "codex"
+	}
+	stripeRunners(tasks, defaultRunner, tf.DefaultFallbacks)
+
 	// resolve repos dir
 	reposDir, err = filepath.Abs(reposDir)
 	if err != nil {
@@ -414,6 +421,33 @@ func matchGlob(s, pattern string) bool {
 	}
 
 	return false
+}
+
+// stripeRunners distributes primary runner assignments across available
+// providers for parallel utilization. Tasks without an explicit runner
+// get round-robin primary assignment; each task's fallbacks contain all
+// other providers. Tasks with an explicit Runner field are not modified.
+func stripeRunners(tasks []task.Task, defaultRunner string, fallbacks []string) {
+	if len(fallbacks) == 0 {
+		return
+	}
+	all := []string{defaultRunner}
+	all = append(all, fallbacks...)
+
+	for i := range tasks {
+		if tasks[i].Runner != "" {
+			continue
+		}
+		idx := i % len(all)
+		tasks[i].Runner = all[idx]
+		var fb []string
+		for j, r := range all {
+			if j != idx {
+				fb = append(fb, r)
+			}
+		}
+		tasks[i].Fallbacks = fb
+	}
 }
 
 func collectRepos(tasks []task.Task) []string {

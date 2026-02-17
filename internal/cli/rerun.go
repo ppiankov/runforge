@@ -42,7 +42,7 @@ func newRerunCmd() *cobra.Command {
 			if !cmd.Flags().Changed("fail-fast") && cfg.FailFast {
 				failFast = cfg.FailFast
 			}
-			return rerunTasks(runDir, workers, reposDir, maxRuntime, failFast, cfg.PostRun)
+			return rerunTasks(runDir, workers, reposDir, maxRuntime, failFast, cfg)
 		},
 	}
 
@@ -56,7 +56,7 @@ func newRerunCmd() *cobra.Command {
 	return cmd
 }
 
-func rerunTasks(runDir string, workers int, reposDir string, maxRuntime time.Duration, failFast bool, postRun string) error {
+func rerunTasks(runDir string, workers int, reposDir string, maxRuntime time.Duration, failFast bool, cfg *config.Settings) error {
 	// load previous report
 	reportPath := filepath.Join(runDir, "report.json")
 	prevReport, err := reporter.ReadJSONReport(reportPath)
@@ -90,6 +90,30 @@ func rerunTasks(runDir string, workers int, reposDir string, maxRuntime time.Dur
 		return fmt.Errorf("load original task file %q: %w", prevReport.TasksFile, err)
 	}
 
+	// merge current config runner profiles — rerun should use the latest
+	// runner configuration, not the stale one baked into the original task file.
+	// This ensures new fallbacks (e.g. deepseek) are available on rerun.
+	if cfg != nil {
+		if cfg.DefaultRunner != "" {
+			tf.DefaultRunner = cfg.DefaultRunner
+		}
+		if len(cfg.DefaultFallbacks) > 0 {
+			tf.DefaultFallbacks = cfg.DefaultFallbacks
+		}
+		if len(cfg.Runners) > 0 {
+			if tf.Runners == nil {
+				tf.Runners = make(map[string]*task.RunnerProfileConfig)
+			}
+			for name, rp := range cfg.Runners {
+				tf.Runners[name] = &task.RunnerProfileConfig{
+					Type:  rp.Type,
+					Model: rp.Model,
+					Env:   rp.Env,
+				}
+			}
+		}
+	}
+
 	// filter to rerunnable tasks and strip completed dependencies
 	var tasks []task.Task
 	var missing []string
@@ -107,6 +131,13 @@ func rerunTasks(runDir string, workers int, reposDir string, maxRuntime time.Dur
 		t.DependsOn = kept
 		tasks = append(tasks, t)
 	}
+
+	// stripe runner assignments for parallel provider utilization
+	rerunDefault := tf.DefaultRunner
+	if rerunDefault == "" {
+		rerunDefault = "codex"
+	}
+	stripeRunners(tasks, rerunDefault, tf.DefaultFallbacks)
 
 	// check for tasks in report but missing from task file
 	found := make(map[string]bool)
@@ -163,7 +194,7 @@ func rerunTasks(runDir string, workers int, reposDir string, maxRuntime time.Dur
 		reposDir:   reposDir,
 		maxRuntime: maxRuntime,
 		failFast:   failFast,
-		postRun:    postRun,
+		postRun:    cfg.PostRun,
 	})
 	if err != nil {
 		return err

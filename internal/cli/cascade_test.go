@@ -288,6 +288,65 @@ func TestResolveRunnerCascade_NoDuplicatePrimary(t *testing.T) {
 	}
 }
 
+func TestStripeRunners_RoundRobin(t *testing.T) {
+	tasks := make([]task.Task, 10)
+	for i := range tasks {
+		tasks[i] = task.Task{ID: fmt.Sprintf("t%d", i)}
+	}
+
+	stripeRunners(tasks, "codex", []string{"deepseek", "minimax", "zai", "claude"})
+
+	// 5 providers: codex, deepseek, minimax, zai, claude
+	expectedPrimary := []string{"codex", "deepseek", "minimax", "zai", "claude", "codex", "deepseek", "minimax", "zai", "claude"}
+	for i, tk := range tasks {
+		if tk.Runner != expectedPrimary[i] {
+			t.Fatalf("task %d: expected runner=%s, got %s", i, expectedPrimary[i], tk.Runner)
+		}
+		if len(tk.Fallbacks) != 4 {
+			t.Fatalf("task %d: expected 4 fallbacks, got %d", i, len(tk.Fallbacks))
+		}
+		// primary must not appear in fallbacks
+		for _, fb := range tk.Fallbacks {
+			if fb == tk.Runner {
+				t.Fatalf("task %d: primary %s found in fallbacks", i, tk.Runner)
+			}
+		}
+	}
+}
+
+func TestStripeRunners_RespectsExplicitRunner(t *testing.T) {
+	tasks := []task.Task{
+		{ID: "t0"},
+		{ID: "t1", Runner: "custom", Fallbacks: []string{"other"}},
+		{ID: "t2"},
+	}
+
+	stripeRunners(tasks, "codex", []string{"deepseek", "zai"})
+
+	if tasks[0].Runner != "codex" {
+		t.Fatalf("t0: expected codex, got %s", tasks[0].Runner)
+	}
+	if tasks[1].Runner != "custom" {
+		t.Fatalf("t1: explicit runner should be preserved, got %s", tasks[1].Runner)
+	}
+	if len(tasks[1].Fallbacks) != 1 || tasks[1].Fallbacks[0] != "other" {
+		t.Fatalf("t1: explicit fallbacks should be preserved, got %v", tasks[1].Fallbacks)
+	}
+	if tasks[2].Runner != "zai" {
+		t.Fatalf("t2: expected zai (index 2 %% 3), got %s", tasks[2].Runner)
+	}
+}
+
+func TestStripeRunners_NoFallbacks(t *testing.T) {
+	tasks := []task.Task{{ID: "t0"}, {ID: "t1"}}
+	stripeRunners(tasks, "codex", nil)
+
+	// no-op when no fallbacks configured
+	if tasks[0].Runner != "" {
+		t.Fatalf("expected empty runner, got %s", tasks[0].Runner)
+	}
+}
+
 func TestBuildRunnerRegistry_BuiltinsOnly(t *testing.T) {
 	tf := &task.TaskFile{}
 	reg, err := buildRunnerRegistry(tf)
