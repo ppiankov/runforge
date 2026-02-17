@@ -3,35 +3,37 @@
 
 # runforge
 
-Dependency-aware parallel task runner for AI coding agents. Reads a task spec, builds a dependency DAG, spawns parallel processes, detects failures from JSONL output, and reports results.
+Dependency-aware parallel task runner for AI coding agents with multi-provider fallback and cost tracking.
 
 ## Why This Exists
 
-AI coding agents (Claude Code, Codex, Copilot) are powerful but suffer from three efficiency problems when used interactively:
+AI coding agents (Claude Code, Codex, z.ai) are powerful but suffer from three efficiency problems when used interactively:
 
-- **Context pollution** — each `/codex` invocation reads files into Claude Code's context window that have nothing to do with the current task. After 10 invocations across 6 repos, the context is full of irrelevant code.
-- **Context drift** — as conversation history grows, the agent gradually loses focus on the current task. By tool call 50+, it's re-reading files it already read and making decisions based on stale context.
-- **Token bleed** — tokens spent generating one command at a time, copy-pasting, waiting, then generating the next. Each round-trip costs planning tokens that produce no code.
+- **Context pollution** — each task invocation pollutes the conversation with irrelevant file reads. After 10 tasks across 6 repos, the context window is full of code from other projects.
+- **Context drift** — as history grows, the agent loses focus. By tool call 50+, it re-reads files and makes decisions based on stale context.
+- **Token bleed** — tokens spent on planning and copy-pasting between tasks. Each round-trip costs planning tokens that produce no code.
 
-Runforge eliminates all three: define all tasks once in a JSON file, execute them in parallel outside the interactive session, review results when done. The interactive agent stays clean for architecture and review work.
+Runforge eliminates all three: define tasks once in JSON, execute in parallel across multiple LLM providers, track results with forgeaware. The interactive session stays clean for architecture and review.
 
 ## What This Is
 
 - Reads a JSON task file with dependency declarations
-- Builds a directed acyclic graph and executes tasks in topological order
-- Runs multiple tasks in parallel with configurable worker count
-- Detects Codex failures from JSONL event stream (exit code 0 is unreliable)
-- Skips all transitive dependents on failure — no wasted compute
-- Per-repo verification via `make test && make lint`
-- Produces JSON reports for post-run analysis
+- Builds a DAG and executes tasks in topological order with configurable parallelism
+- **Runner fallback cascade** — if codex rate-limits, falls to z.ai, then claude
+- **Multi-provider execution** — assign tasks to different LLM providers for parallel utilization
+- **Repo-level locking** — prevents two agents from modifying the same repo simultaneously
+- **Live TUI** — real-time task status with runner tags (`[codex]`, `[zai]`, `[via zai]`)
+- **Post-run hooks** — auto-import results to forgeaware for cost tracking
+- **Per-task metadata** — each output dir contains `task.json` making runs self-contained
+- Produces JSON reports for post-run analysis and rerun of failures
 
 ## What This Is NOT
 
-- Not a CI/CD system — no retries, no webhooks, no persistence between runs
-- Not a general-purpose task runner — designed for AI agent orchestration
+- Not a CI/CD system — designed for AI agent orchestration, not build pipelines
+- Not Airflow — orchestrates LLM coding agents, not ETL data jobs
 - Not a process supervisor — runs once, exits when done
 - Not a build system — delegates builds to Makefiles in target repos
-- Does not provide its own AI — orchestrates external runners (Codex, etc.)
+- Does not provide its own AI — orchestrates external runners (Codex, z.ai, Claude)
 
 ## Quick Start
 
@@ -43,116 +45,189 @@ brew install ppiankov/tap/runforge
 
 # Go install
 go install github.com/ppiankov/runforge/cmd/runforge@latest
-
-# Binary download
-# See https://github.com/ppiankov/runforge/releases
 ```
 
-### Run
+### Configure
+
+Create `.runforge.yml` in your repos directory:
+
+```yaml
+repos_dir: /path/to/repos
+workers: 6
+fail_fast: true
+max_runtime: 30m
+
+default_runner: codex
+default_fallbacks:
+  - zai
+
+runners:
+  codex:
+    type: codex
+  zai:
+    type: codex
+    env:
+      OPENAI_API_KEY: "env:ZAI_API_KEY"
+      OPENAI_BASE_URL: "https://api.zai.zhipu.ai/v1"
+
+post_run: /path/to/forgeaware/scripts/forge-import-run.sh $RUNFORGE_RUN_DIR
+```
+
+### Generate and Run
 
 ```bash
-# Show execution plan
-runforge run --dry-run --tasks runforge.json --repos-dir ~/dev/repos
+# Generate task file from work orders
+runforge generate --repos-dir ~/dev/repos --config .runforge.yml
 
-# Execute with 4 parallel workers
-runforge run --tasks runforge.json --repos-dir ~/dev/repos --workers 4
+# Preview execution plan
+runforge run --dry-run --tasks runforge-tasks.json --repos-dir ~/dev/repos
 
-# Execute with verification
-runforge run --tasks runforge.json --repos-dir ~/dev/repos --verify
-
-# Filter to specific tasks
-runforge run --tasks runforge.json --repos-dir ~/dev/repos --filter "myproject-*"
-
-# Fail fast on first error
-runforge run --tasks runforge.json --repos-dir ~/dev/repos --fail-fast
+# Execute with live TUI
+runforge run --tasks runforge-tasks.json --repos-dir ~/dev/repos --config .runforge.yml --workers 6
 ```
 
 ## Workflow
-
-The full cycle: generate a task file from work orders, audit it against repo state, execute, review results.
 
 ```
 ┌─────────────┐     ┌─────────────┐     ┌─────────────┐     ┌─────────────┐
 │   generate   │────▶│    audit     │────▶│     run      │────▶│   review    │
 │              │     │              │     │              │     │              │
 │ scan repos   │     │ remove done  │     │ DAG schedule │     │ status report│
-│ parse WOs    │     │ narrow partial│    │ parallel exec│     │ verify repos │
-│ emit JSON    │     │ validate     │     │ fail-fast    │     │ rerun failed │
+│ parse WOs    │     │ narrow partial│    │ runner cascade│    │ forgeaware   │
+│ inject config│     │ validate     │     │ live TUI     │     │ rerun failed │
 └─────────────┘     └─────────────┘     └─────────────┘     └─────────────┘
 ```
 
-**Step 1: Generate** — scan repos for `docs/work-orders.md`, extract pending WOs, produce task file.
+**Step 1: Generate** — scan repos for `docs/work-orders.md`, extract pending WOs, inject runner profiles from `.runforge.yml`.
 
 ```bash
-runforge generate --repos-dir ~/dev/repos --output runforge-tasks.json
+runforge generate --repos-dir ~/dev/repos --config .runforge.yml
 ```
 
-**Step 2: Audit** — verify task file against actual repo state, remove completed tasks. See [Task File Maintenance](#task-file-maintenance).
+**Step 2: Run** — execute tasks in parallel with dependency ordering and live TUI.
 
 ```bash
-runforge run --dry-run --tasks runforge-tasks.json --repos-dir ~/dev/repos
+runforge run --tasks runforge-tasks.json --repos-dir ~/dev/repos --config .runforge.yml --workers 6
 ```
 
-**Step 3: Run** — execute tasks in parallel with dependency ordering.
-
-```bash
-runforge run --tasks runforge-tasks.json --repos-dir ~/dev/repos --workers 6 --fail-fast
-```
-
-**Step 4: Review** — inspect results, verify repos, rerun failures.
+**Step 3: Review** — inspect results, verify repos, rerun failures.
 
 ```bash
 runforge status --run-dir .runforge/<latest>
-runforge verify --run-dir .runforge/<latest> --repos-dir ~/dev/repos
 runforge rerun --run-dir .runforge/<latest>    # failed/skipped only
 ```
+
+## Runner Cascade
+
+When a runner fails or is rate-limited, runforge automatically tries the next provider in the cascade:
+
+```
+codex (primary) ──fail──▶ zai (fallback 1) ──fail──▶ claude (fallback 2)
+```
+
+Configure per-task or globally:
+
+```json
+{
+  "default_runner": "codex",
+  "default_fallbacks": ["zai", "claude"],
+  "runners": {
+    "codex": { "type": "codex" },
+    "zai": {
+      "type": "codex",
+      "env": {
+        "OPENAI_API_KEY": "env:ZAI_API_KEY",
+        "OPENAI_BASE_URL": "https://api.zai.zhipu.ai/v1"
+      }
+    }
+  }
+}
+```
+
+The TUI shows which runner completed each task:
+
+```
+✓ COMPLETED  repo-WO01  Add unit tests           3m20s  [codex]
+✓ COMPLETED  repo-WO02  Add SARIF output         4m10s  [via zai]    ← fell back from codex
+✗ FAILED     repo-WO03  Add TUI                  0s     (tried codex→zai→claude)
+```
+
+Assign tasks to specific runners for parallel provider utilization:
+
+```json
+{ "id": "repo-WO01", "runner": "codex", ... }
+{ "id": "repo-WO02", "runner": "zai", ... }
+```
+
+## Forgeaware Integration
+
+Runforge auto-imports run results to [forgeaware](https://forgeaware.dev) via the `post_run` hook. After each run:
+
+1. `forge-import-run.sh` reads `report.json` from the run directory
+2. Extracts per-task: repo, result (pass/fail), token count, wall time, runner used
+3. Logs to `~/.forgeaware/metrics.log` for aggregation and dashboards
+
+This creates an accountability pipeline: every AI agent task is tracked — which provider, how many tokens, how long, pass or fail.
 
 ## Usage
 
 ### `runforge run`
-
-Execute tasks with dependency-aware parallelism.
 
 | Flag | Default | Description |
 |------|---------|-------------|
 | `--tasks FILE` | `runforge.json` | Path to tasks JSON file |
 | `--workers N` | `4` | Max parallel runner processes |
 | `--repos-dir DIR` | `.` | Base directory containing repos |
+| `--config FILE` | `.runforge.yml` | Settings file (workers, runners, post_run) |
 | `--filter PATTERN` | | Only run tasks matching ID glob |
 | `--dry-run` | `false` | Show execution plan without running |
 | `--verify` | `false` | Run `make test && make lint` per repo after completion |
 | `--max-runtime DUR` | `30m` | Per-task timeout duration |
 | `--fail-fast` | `false` | Stop spawning new tasks on first failure |
-| `--verbose` | `false` | Enable debug logging |
+
+### `runforge generate`
+
+| Flag | Default | Description |
+|------|---------|-------------|
+| `--repos-dir DIR` | `.` | Base directory to scan for repos |
+| `--config FILE` | `.runforge.yml` | Inject runner profiles from config |
+| `--output FILE` | `<repos-dir>/runforge-tasks.json` | Output task file path |
+| `--owner ORG` | (inferred from git) | GitHub owner/org for repo slugs |
+| `--runner NAME` | `codex` | Default runner for generated tasks |
+| `--filter-repo NAME` | | Only scan this repo |
+
+### `runforge rerun`
+
+Rerun failed and skipped tasks from a previous run. Preserves runner profiles and settings.
+
+```bash
+runforge rerun --run-dir .runforge/20260217-143750
+```
 
 ### `runforge status`
 
-Inspect results of a completed run.
-
 ```bash
-runforge status --run-dir .runforge/20260216-143000
-```
-
-### `runforge verify`
-
-Run `make test && make lint` for repos in a completed run.
-
-```bash
-runforge verify --run-dir .runforge/20260216-143000 --repos-dir ~/dev/repos
+runforge status --run-dir .runforge/20260217-143750
 ```
 
 ### `runforge version`
 
-Print version information.
+```bash
+runforge version
+# runforge 0.2.0 (commit: 817391b, built: 2026-02-17T04:35:23Z, go: go1.26.0)
+```
 
 ## Task Spec
-
-The task file is a JSON document describing work orders with optional dependencies.
 
 ```json
 {
   "description": "Sprint 42 work orders",
-  "allowed_repos": ["org/repo1", "org/repo2"],
+  "default_runner": "codex",
+  "default_fallbacks": ["zai"],
+  "runners": {
+    "codex": { "type": "codex" },
+    "zai": { "type": "codex", "env": { "OPENAI_API_KEY": "env:ZAI_API_KEY" } }
+  },
   "tasks": [
     {
       "id": "repo1-WO01",
@@ -166,7 +241,7 @@ The task file is a JSON document describing work orders with optional dependenci
       "id": "repo1-WO02",
       "repo": "org/repo1",
       "priority": 1,
-      "depends_on": "repo1-WO01",
+      "depends_on": ["repo1-WO01"],
       "title": "Add integration tests",
       "prompt": "Add integration tests that depend on..."
     }
@@ -178,134 +253,54 @@ The task file is a JSON document describing work orders with optional dependenci
 |-------|----------|-------------|
 | `id` | Yes | Unique task identifier |
 | `repo` | Yes | Repository in `owner/name` format |
-| `priority` | Yes | Execution priority (lower = first; 1=high, 2=medium, 3=low, 99=run last) |
+| `priority` | Yes | Execution priority (1=high, 2=medium, 3=low, 99=last) |
 | `title` | Yes | Short description |
 | `prompt` | Yes | Full prompt for the AI agent |
-| `depends_on` | No | ID of task that must complete first |
-| `runner` | No | Runner backend (default: `codex`) |
-| `allowed_repos` | No | Top-level repo allowlist for safety |
-
-## Exit Codes
-
-| Code | Meaning |
-|------|---------|
-| `0` | All tasks completed successfully |
-| `1` | One or more tasks failed |
-| `2` | Configuration error (invalid task file, missing repo, cycle) |
-
-## Failure Model
-
-Codex can exit with code 0 even when a turn fails. runforge detects failure by parsing the JSONL event stream for `turn.failed` events. When a task fails:
-
-1. All transitive dependents are marked SKIPPED
-2. Independent tasks continue executing
-3. With `--fail-fast`, no new tasks are spawned (running tasks finish)
+| `depends_on` | No | IDs of tasks that must complete first |
+| `runner` | No | Runner backend (default: from config or `codex`) |
 
 ## Architecture
 
 ```
-cmd/runforge/main.go        -- CLI entry point (minimal)
+cmd/runforge/main.go        -- CLI entry point
 internal/
-  cli/                      -- Cobra commands (run, status, verify, version)
-  config/                   -- Task file parsing and validation
+  cli/
+    run.go                  -- run command: DAG scheduling, lock, TUI, post-run hook
+    generate.go             -- generate command: scan repos, inject runner profiles
+    rerun.go                -- rerun command: retry failed tasks with preserved config
+    root.go                 -- Cobra root, version vars, global flags
+  config/
+    settings.go             -- .runforge.yml loading, runner profile config
   task/
-    model.go                -- Task, TaskResult, RunReport types
+    model.go                -- Task, TaskFile, TaskResult, RunReport, RunnerProfileConfig
     graph.go                -- Dependency DAG, topological sort (Kahn's algorithm)
     scheduler.go            -- Worker pool with dependency-aware scheduling
   runner/
-    runner.go               -- Runner interface
-    codex.go                -- Codex exec backend (JSONL parsing)
-    verifier.go             -- Per-repo make test/lint
+    runner.go               -- Runner interface and registry
+    codex.go                -- Codex exec backend (JSONL parsing, env resolution)
+    lock.go                 -- Per-repo file locking with wait-and-retry
+    blacklist.go            -- Global runner blacklist with TTL for rate-limited providers
+    profile.go              -- Runner profile resolution (env: prefix → os.Getenv)
   reporter/
-    text.go                 -- Terminal output (ANSI when TTY)
+    live.go                 -- Live TUI with runner tags and fallback indicators
+    text.go                 -- Text reporter with cascade attempt display
     json.go                 -- JSON report writer
-```
-
-## Building from Source
-
-```bash
-git clone https://github.com/ppiankov/runforge.git
-cd runforge
-make build    # produces bin/runforge
-make test     # run tests with -race
-make lint     # golangci-lint
-```
-
-## Task File Maintenance
-
-Task files go stale as work completes. Audit before each run to remove done tasks and update partial ones.
-
-### Manual Audit
-
-For each task, check if the described files already exist in the target repo:
-
-```bash
-# Quick check: does the file exist?
-ls ~/dev/repos/kafkaspectre/cmd/kafkaspectre/main.go
-
-# Check test coverage: do test files exist?
-find ~/dev/repos/clickspectre/internal -name '*_test.go'
-
-# Check work-orders.md status markers
-grep -E '^\[x\]|^- \[x\]' ~/dev/repos/kafkaspectre/docs/work-orders.md
-```
-
-Remove completed tasks. Narrow partial tasks to only what remains.
-
-### Automated Audit via Codex
-
-Offload the audit itself to Codex:
-
-```bash
-codex exec --full-auto --json --output-last-message /tmp/codex-task-audit.md \
-  -C ~/dev/ppiankov-github \
-  "Audit the file codex-tasks.json against the actual state of each repo.
-
-For each task:
-1. Check if the described files/features already exist in the repo
-2. Check the repo's docs/work-orders.md for [x] (done) status markers
-3. If fully done: remove the task from the JSON
-4. If partially done: update the prompt to reflect only what remains
-5. If not done: keep as-is
-
-Check patterns:
-- 'Create X' tasks: does file X exist?
-- 'Add tests' tasks: do *_test.go files exist in target packages?
-- 'Add slog' tasks: does internal/logging/logging.go exist?
-- 'Add SARIF' tasks: does internal/report/sarif.go exist?
-- 'JSON header' tasks: do tool/version/timestamp fields exist in reporter?
-- 'CONTRIBUTING.md' tasks: does the file exist in repo root?
-
-Write updated codex-tasks.json back. Write change summary to /tmp/codex-task-audit.md.
-Verify output is valid JSON: cat codex-tasks.json | jq .
-Do NOT change task IDs or repos. Only remove completed and narrow partial tasks."
-```
-
-Review the output before running:
-
-```bash
-cat /tmp/codex-task-audit.md    # what changed
-jq '.tasks | length' codex-tasks.json  # task count
-runforge run --dry-run --tasks codex-tasks.json --repos-dir ~/dev/repos
 ```
 
 ## Known Limitations
 
-- Single `depends_on` per task (no multi-dependency DAG yet)
-- No retry mechanism (intentional — retries hide root causes)
 - No remote execution — runs processes locally
-- Codex is the only runner backend (runner interface is ready for extensions)
-- No live status refresh in terminal (prints final state)
-- No pre-flight quota check — Codex/Claude APIs don't expose remaining quota. If the runner hits a rate limit (`usage_limit_reached`), all subsequent tasks fail with the same error. Workaround: use fewer workers (`--workers 2`) for large batches to stay under rate limits. See WO-11 for planned rate limit detection that will stop spawning on first 429.
+- Same-repo tasks serialize (repo lock); different repos run in parallel
+- No pre-flight quota check — if a runner rate-limits, fallback cascade handles it
+- No git branching per task — same-repo parallelism requires repo locking (branching is planned)
 
 ## Roadmap
 
-- [ ] Rate limit detection — stop on first 429, show reset countdown (WO-11)
-- [ ] Live terminal status with refresh (WO-10)
-- [ ] Claude runner backend
-- [ ] Script runner backend (arbitrary commands)
-- [ ] Multi-dependency support (`depends_on` as array)
+- [ ] Per-task git branches — enable true same-repo parallelism
 - [ ] SARIF report output
+- [ ] Script runner backend (arbitrary commands)
+- [ ] Rate limit detection — stop on first 429, show reset countdown
+- [ ] Claude runner backend (direct API)
 
 ## License
 
