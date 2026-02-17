@@ -17,8 +17,9 @@ import (
 
 // CodexRunner spawns codex exec processes and parses their JSONL output.
 type CodexRunner struct {
-	model string   // model override (--model flag)
-	env   []string // additional env vars for the subprocess
+	model   string   // model override (--model flag)
+	profile string   // codex --profile name (references config.toml profiles)
+	env     []string // additional env vars for the subprocess
 }
 
 // NewCodexRunner creates a new CodexRunner.
@@ -26,9 +27,9 @@ func NewCodexRunner() *CodexRunner {
 	return &CodexRunner{}
 }
 
-// NewCodexRunnerWithProfile creates a CodexRunner with model and env overrides.
-func NewCodexRunnerWithProfile(model string, env map[string]string) *CodexRunner {
-	return &CodexRunner{model: model, env: MapToEnvSlice(env)}
+// NewCodexRunnerWithProfile creates a CodexRunner with model, profile, and env overrides.
+func NewCodexRunnerWithProfile(model, profile string, env map[string]string) *CodexRunner {
+	return &CodexRunner{model: model, profile: profile, env: MapToEnvSlice(env)}
 }
 
 // Name returns the runner identifier.
@@ -51,12 +52,15 @@ func (r *CodexRunner) Run(ctx context.Context, t *task.Task, repoDir, outputDir 
 		"--output-last-message", outputFile,
 		"-C", repoDir,
 	}
+	if r.profile != "" {
+		args = append(args, "--profile", r.profile)
+	}
 	if r.model != "" {
 		args = append(args, "--model", r.model)
 	}
 	args = append(args, t.Prompt)
 
-	slog.Debug("spawning codex", "task", t.ID, "repo", t.Repo, "dir", repoDir, "model", r.model)
+	slog.Debug("spawning codex", "task", t.ID, "repo", t.Repo, "dir", repoDir, "model", r.model, "profile", r.profile)
 
 	cmd := exec.CommandContext(ctx, "codex", args...)
 	cmd.Dir = repoDir

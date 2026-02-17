@@ -26,9 +26,10 @@ type Settings struct {
 
 // RunnerProfile mirrors task.RunnerProfileConfig for YAML config.
 type RunnerProfile struct {
-	Type  string            `yaml:"type"`
-	Model string            `yaml:"model,omitempty"`
-	Env   map[string]string `yaml:"env,omitempty"`
+	Type    string            `yaml:"type"`
+	Model   string            `yaml:"model,omitempty"`
+	Profile string            `yaml:"profile,omitempty"`
+	Env     map[string]string `yaml:"env,omitempty"`
 }
 
 // LoadSettings reads a YAML config file into Settings.

@@ -132,27 +132,21 @@ func buildRunnerRegistry(tf *task.TaskFile) (map[string]runner.Runner, error) {
 		"script": runner.NewScriptRunner(),
 	}
 
-	type profileCtor func(model string, env map[string]string) runner.Runner
-	constructors := map[string]profileCtor{
-		"codex": func(model string, env map[string]string) runner.Runner {
-			return runner.NewCodexRunnerWithProfile(model, env)
-		},
-		"claude": func(model string, env map[string]string) runner.Runner {
-			return runner.NewClaudeRunnerWithProfile(model, env)
-		},
-		"script": func(_ string, env map[string]string) runner.Runner { return runner.NewScriptRunnerWithEnv(env) },
-	}
-
 	for name, profile := range tf.Runners {
 		resolved, err := runner.ResolveEnv(profile.Env)
 		if err != nil {
 			return nil, fmt.Errorf("runner %q env: %w", name, err)
 		}
-		ctor, ok := constructors[profile.Type]
-		if !ok {
+		switch profile.Type {
+		case "codex":
+			runners[name] = runner.NewCodexRunnerWithProfile(profile.Model, profile.Profile, resolved)
+		case "claude":
+			runners[name] = runner.NewClaudeRunnerWithProfile(profile.Model, resolved)
+		case "script":
+			runners[name] = runner.NewScriptRunnerWithEnv(resolved)
+		default:
 			return nil, fmt.Errorf("runner %q has unknown type %q", name, profile.Type)
 		}
-		runners[name] = ctor(profile.Model, resolved)
 	}
 
 	return runners, nil
