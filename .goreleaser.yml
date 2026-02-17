@@ -9,6 +9,7 @@ builds:
       - -s -w
       - -X github.com/ppiankov/runforge/internal/cli.Version={{.Version}}
       - -X github.com/ppiankov/runforge/internal/cli.Commit={{.ShortCommit}}
+      - -X github.com/ppiankov/runforge/internal/cli.BuildDate={{.CommitDate}}
     goos:
       - linux
       - darwin
