@@ -106,9 +106,10 @@ func rerunTasks(runDir string, workers int, reposDir string, maxRuntime time.Dur
 			}
 			for name, rp := range cfg.Runners {
 				tf.Runners[name] = &task.RunnerProfileConfig{
-					Type:  rp.Type,
-					Model: rp.Model,
-					Env:   rp.Env,
+					Type:    rp.Type,
+					Model:   rp.Model,
+					Profile: rp.Profile,
+					Env:     rp.Env,
 				}
 			}
 		}

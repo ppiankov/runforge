@@ -174,9 +174,10 @@ func generateTasks(reposDir, output, owner, filterRepo, defaultRunner string, cf
 			tf.Runners = make(map[string]*task.RunnerProfileConfig, len(cfg.Runners))
 			for name, rp := range cfg.Runners {
 				tf.Runners[name] = &task.RunnerProfileConfig{
-					Type:  rp.Type,
-					Model: rp.Model,
-					Env:   rp.Env,
+					Type:    rp.Type,
+					Model:   rp.Model,
+					Profile: rp.Profile,
+					Env:     rp.Env,
 				}
 			}
 		}
