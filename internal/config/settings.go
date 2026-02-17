@@ -23,6 +23,9 @@ type Settings struct {
 	DefaultRunner    string                    `yaml:"default_runner"`
 	DefaultFallbacks []string                  `yaml:"default_fallbacks"`
 	Runners          map[string]*RunnerProfile `yaml:"runners"`
+
+	// Responses API → Chat Completions translation proxy
+	Proxy *ProxyConfig `yaml:"proxy,omitempty"`
 }
 
 // RunnerProfile mirrors task.RunnerProfileConfig for YAML config.
@@ -32,6 +35,19 @@ type RunnerProfile struct {
 	Profile       string            `yaml:"profile,omitempty"`
 	Env           map[string]string `yaml:"env,omitempty"`
 	MaxConcurrent int               `yaml:"max_concurrent,omitempty"`
+}
+
+// ProxyConfig controls the built-in Responses API → Chat Completions proxy.
+type ProxyConfig struct {
+	Enabled bool                    `yaml:"enabled"`
+	Listen  string                  `yaml:"listen,omitempty"` // default ":4000"
+	Targets map[string]*ProxyTarget `yaml:"targets"`
+}
+
+// ProxyTarget describes an upstream Chat Completions endpoint.
+type ProxyTarget struct {
+	BaseURL string `yaml:"base_url"`
+	APIKey  string `yaml:"api_key,omitempty"` // literal or "env:VAR_NAME"
 }
 
 // LoadSettings reads a YAML config file into Settings.
