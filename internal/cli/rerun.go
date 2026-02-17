@@ -15,11 +15,12 @@ import (
 
 func newRerunCmd() *cobra.Command {
 	var (
-		runDir     string
-		workers    int
-		reposDir   string
-		maxRuntime time.Duration
-		failFast   bool
+		runDir      string
+		workers     int
+		reposDir    string
+		maxRuntime  time.Duration
+		idleTimeout time.Duration
+		failFast    bool
 	)
 
 	cmd := &cobra.Command{
@@ -39,10 +40,13 @@ func newRerunCmd() *cobra.Command {
 			if !cmd.Flags().Changed("max-runtime") && cfg.MaxRuntime > 0 {
 				maxRuntime = cfg.MaxRuntime
 			}
+			if !cmd.Flags().Changed("idle-timeout") && cfg.IdleTimeout > 0 {
+				idleTimeout = cfg.IdleTimeout
+			}
 			if !cmd.Flags().Changed("fail-fast") && cfg.FailFast {
 				failFast = cfg.FailFast
 			}
-			return rerunTasks(runDir, workers, reposDir, maxRuntime, failFast, cfg)
+			return rerunTasks(runDir, workers, reposDir, maxRuntime, idleTimeout, failFast, cfg)
 		},
 	}
 
@@ -50,13 +54,14 @@ func newRerunCmd() *cobra.Command {
 	cmd.Flags().IntVar(&workers, "workers", 0, "override worker count (0 = use original)")
 	cmd.Flags().StringVar(&reposDir, "repos-dir", "", "override repos directory (empty = use original)")
 	cmd.Flags().DurationVar(&maxRuntime, "max-runtime", 30*time.Minute, "per-task timeout duration")
+	cmd.Flags().DurationVar(&idleTimeout, "idle-timeout", 5*time.Minute, "kill task after no stdout for this duration")
 	cmd.Flags().BoolVar(&failFast, "fail-fast", false, "stop spawning new tasks on first failure")
 	_ = cmd.MarkFlagRequired("run-dir")
 
 	return cmd
 }
 
-func rerunTasks(runDir string, workers int, reposDir string, maxRuntime time.Duration, failFast bool, cfg *config.Settings) error {
+func rerunTasks(runDir string, workers int, reposDir string, maxRuntime, idleTimeout time.Duration, failFast bool, cfg *config.Settings) error {
 	// load previous report
 	reportPath := filepath.Join(runDir, "report.json")
 	prevReport, err := reporter.ReadJSONReport(reportPath)
@@ -187,15 +192,17 @@ func rerunTasks(runDir string, workers int, reposDir string, maxRuntime time.Dur
 		countState(prevReport, task.StateRateLimited, rerunIDs))
 
 	result, err := executeRun(execRunConfig{
-		tasksFile:  prevReport.TasksFile,
-		taskFile:   tf,
-		tasks:      tasks,
-		graph:      graph,
-		workers:    workers,
-		reposDir:   reposDir,
-		maxRuntime: maxRuntime,
-		failFast:   failFast,
-		postRun:    cfg.PostRun,
+		tasksFile:   prevReport.TasksFile,
+		taskFile:    tf,
+		tasks:       tasks,
+		graph:       graph,
+		workers:     workers,
+		reposDir:    reposDir,
+		maxRuntime:  maxRuntime,
+		idleTimeout: idleTimeout,
+		failFast:    failFast,
+		postRun:     cfg.PostRun,
+		settings:    cfg,
 	})
 	if err != nil {
 		return err

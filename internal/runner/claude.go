@@ -30,18 +30,19 @@ type claudeContent struct {
 
 // ClaudeRunner spawns Claude Code CLI processes and parses their stream-json output.
 type ClaudeRunner struct {
-	model string   // model override (--model flag)
-	env   []string // additional env vars for the subprocess
+	model       string        // model override (--model flag)
+	env         []string      // additional env vars for the subprocess
+	idleTimeout time.Duration // kill task after this duration with no stdout events
 }
 
 // NewClaudeRunner creates a new ClaudeRunner.
-func NewClaudeRunner() *ClaudeRunner {
-	return &ClaudeRunner{}
+func NewClaudeRunner(idleTimeout time.Duration) *ClaudeRunner {
+	return &ClaudeRunner{idleTimeout: idleTimeout}
 }
 
 // NewClaudeRunnerWithProfile creates a ClaudeRunner with model and env overrides.
-func NewClaudeRunnerWithProfile(model string, env map[string]string) *ClaudeRunner {
-	return &ClaudeRunner{model: model, env: MapToEnvSlice(env)}
+func NewClaudeRunnerWithProfile(model string, env map[string]string, idleTimeout time.Duration) *ClaudeRunner {
+	return &ClaudeRunner{model: model, env: MapToEnvSlice(env), idleTimeout: idleTimeout}
 }
 
 // Name returns the runner identifier.
@@ -67,7 +68,11 @@ func (r *ClaudeRunner) Run(ctx context.Context, t *task.Task, repoDir, outputDir
 
 	slog.Debug("spawning claude", "task", t.ID, "repo", t.Repo, "dir", repoDir, "model", r.model)
 
-	cmd := exec.CommandContext(ctx, "claude", args...)
+	// idle-aware context: kills the process if no stdout events for idleTimeout
+	idleCtx, idleCancel := context.WithCancel(ctx)
+	defer idleCancel()
+
+	cmd := exec.CommandContext(idleCtx, "claude", args...)
 	cmd.Dir = repoDir
 	if len(r.env) > 0 {
 		cmd.Env = append(os.Environ(), r.env...)
@@ -84,7 +89,11 @@ func (r *ClaudeRunner) Run(ctx context.Context, t *task.Task, repoDir, outputDir
 		return failedResult(t.ID, start, fmt.Sprintf("start claude: %v", err))
 	}
 
-	failed, lastMsg := parseClaudeEvents(stdout, outputDir)
+	// wrap stdout with idle detection — resets on every JSONL event
+	idleReader := newIdleTimeoutReader(stdout, r.idleTimeout, idleCancel)
+	defer idleReader.Stop()
+
+	failed, lastMsg := parseClaudeEvents(idleReader, outputDir)
 
 	exitErr := cmd.Wait()
 	end := time.Now()
@@ -96,6 +105,13 @@ func (r *ClaudeRunner) Run(ctx context.Context, t *task.Task, repoDir, outputDir
 		Duration:  end.Sub(start),
 		OutputDir: outputDir,
 		LastMsg:   lastMsg,
+	}
+
+	// idle timeout takes highest priority — the process was killed due to inactivity
+	if idleReader.Idled() {
+		result.State = task.StateFailed
+		result.Error = fmt.Sprintf("idle timeout: no output for %s", r.idleTimeout)
+		return result
 	}
 
 	// rate limit takes priority over other failure signals

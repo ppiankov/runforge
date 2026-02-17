@@ -11,12 +11,13 @@ import (
 
 // Settings holds persistent CLI defaults loaded from a config file.
 type Settings struct {
-	Workers    int           `yaml:"workers"`
-	ReposDir   string        `yaml:"repos_dir"`
-	MaxRuntime time.Duration `yaml:"max_runtime"`
-	FailFast   bool          `yaml:"fail_fast"`
-	Verify     bool          `yaml:"verify"`
-	PostRun    string        `yaml:"post_run"` // shell command to run after report is written; $RUNFORGE_RUN_DIR is set
+	Workers     int           `yaml:"workers"`
+	ReposDir    string        `yaml:"repos_dir"`
+	MaxRuntime  time.Duration `yaml:"max_runtime"`
+	IdleTimeout time.Duration `yaml:"idle_timeout"`
+	FailFast    bool          `yaml:"fail_fast"`
+	Verify      bool          `yaml:"verify"`
+	PostRun     string        `yaml:"post_run"` // shell command to run after report is written; $RUNFORGE_RUN_DIR is set
 
 	// Runner config injected into generated task files
 	DefaultRunner    string                    `yaml:"default_runner"`
@@ -26,10 +27,11 @@ type Settings struct {
 
 // RunnerProfile mirrors task.RunnerProfileConfig for YAML config.
 type RunnerProfile struct {
-	Type    string            `yaml:"type"`
-	Model   string            `yaml:"model,omitempty"`
-	Profile string            `yaml:"profile,omitempty"`
-	Env     map[string]string `yaml:"env,omitempty"`
+	Type          string            `yaml:"type"`
+	Model         string            `yaml:"model,omitempty"`
+	Profile       string            `yaml:"profile,omitempty"`
+	Env           map[string]string `yaml:"env,omitempty"`
+	MaxConcurrent int               `yaml:"max_concurrent,omitempty"`
 }
 
 // LoadSettings reads a YAML config file into Settings.
