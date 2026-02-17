@@ -15,6 +15,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/ppiankov/runforge/internal/config"
+	"github.com/ppiankov/runforge/internal/proxy"
 	"github.com/ppiankov/runforge/internal/reporter"
 	"github.com/ppiankov/runforge/internal/runner"
 	"github.com/ppiankov/runforge/internal/task"
@@ -226,6 +227,23 @@ func executeRun(cfg execRunConfig) (*execRunResult, error) {
 		fmt.Fprintln(os.Stderr, "\ninterrupted — waiting for running tasks to finish...")
 		cancel()
 	}()
+
+	// start Responses API → Chat Completions proxy if configured
+	if cfg.settings != nil && cfg.settings.Proxy != nil && cfg.settings.Proxy.Enabled {
+		proxyCfg, err := resolveProxyConfig(cfg.settings.Proxy)
+		if err != nil {
+			return nil, fmt.Errorf("proxy config: %w", err)
+		}
+		srv := proxy.New(proxyCfg)
+		if _, err := srv.Start(); err != nil {
+			return nil, fmt.Errorf("start proxy: %w", err)
+		}
+		defer func() {
+			if err := srv.Stop(); err != nil {
+				slog.Warn("proxy stop error", "error", err)
+			}
+		}()
+	}
 
 	// build runner registry from profiles
 	tf := cfg.taskFile
@@ -537,6 +555,33 @@ func removeStatusFile() {
 	if err == nil && len(entries) == 0 {
 		_ = os.Remove(statusDir)
 	}
+}
+
+// resolveProxyConfig converts config.ProxyConfig to proxy.Config,
+// resolving "env:VAR_NAME" references in API keys.
+func resolveProxyConfig(pc *config.ProxyConfig) (proxy.Config, error) {
+	cfg := proxy.Config{
+		Listen:  pc.Listen,
+		Targets: make(map[string]proxy.Target, len(pc.Targets)),
+	}
+	if cfg.Listen == "" {
+		cfg.Listen = ":4000"
+	}
+	for name, t := range pc.Targets {
+		apiKey := t.APIKey
+		if strings.HasPrefix(apiKey, "env:") {
+			envKey := strings.TrimPrefix(apiKey, "env:")
+			apiKey = os.Getenv(envKey)
+			if apiKey == "" {
+				return proxy.Config{}, fmt.Errorf("target %q: env var %q is not set", name, envKey)
+			}
+		}
+		cfg.Targets[name] = proxy.Target{
+			BaseURL: t.BaseURL,
+			APIKey:  apiKey,
+		}
+	}
+	return cfg, nil
 }
 
 // writeTaskMeta saves a task's metadata (id, repo, prompt, runner) to the output dir
