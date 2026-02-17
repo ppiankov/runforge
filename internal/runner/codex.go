@@ -17,19 +17,20 @@ import (
 
 // CodexRunner spawns codex exec processes and parses their JSONL output.
 type CodexRunner struct {
-	model   string   // model override (--model flag)
-	profile string   // codex --profile name (references config.toml profiles)
-	env     []string // additional env vars for the subprocess
+	model       string        // model override (--model flag)
+	profile     string        // codex --profile name (references config.toml profiles)
+	env         []string      // additional env vars for the subprocess
+	idleTimeout time.Duration // kill task after this duration with no stdout events
 }
 
 // NewCodexRunner creates a new CodexRunner.
-func NewCodexRunner() *CodexRunner {
-	return &CodexRunner{}
+func NewCodexRunner(idleTimeout time.Duration) *CodexRunner {
+	return &CodexRunner{idleTimeout: idleTimeout}
 }
 
 // NewCodexRunnerWithProfile creates a CodexRunner with model, profile, and env overrides.
-func NewCodexRunnerWithProfile(model, profile string, env map[string]string) *CodexRunner {
-	return &CodexRunner{model: model, profile: profile, env: MapToEnvSlice(env)}
+func NewCodexRunnerWithProfile(model, profile string, env map[string]string, idleTimeout time.Duration) *CodexRunner {
+	return &CodexRunner{model: model, profile: profile, env: MapToEnvSlice(env), idleTimeout: idleTimeout}
 }
 
 // Name returns the runner identifier.
@@ -62,7 +63,11 @@ func (r *CodexRunner) Run(ctx context.Context, t *task.Task, repoDir, outputDir 
 
 	slog.Debug("spawning codex", "task", t.ID, "repo", t.Repo, "dir", repoDir, "model", r.model, "profile", r.profile)
 
-	cmd := exec.CommandContext(ctx, "codex", args...)
+	// idle-aware context: kills the process if no stdout events for idleTimeout
+	idleCtx, idleCancel := context.WithCancel(ctx)
+	defer idleCancel()
+
+	cmd := exec.CommandContext(idleCtx, "codex", args...)
 	cmd.Dir = repoDir
 	if len(r.env) > 0 {
 		cmd.Env = append(os.Environ(), r.env...)
@@ -79,8 +84,12 @@ func (r *CodexRunner) Run(ctx context.Context, t *task.Task, repoDir, outputDir 
 		return failedResult(t.ID, start, fmt.Sprintf("start codex: %v", err))
 	}
 
+	// wrap stdout with idle detection — resets on every JSONL event
+	idleReader := newIdleTimeoutReader(stdout, r.idleTimeout, idleCancel)
+	defer idleReader.Stop()
+
 	// parse JSONL events from stdout
-	failed, lastMsg := parseEvents(stdout, outputDir)
+	failed, lastMsg := parseEvents(idleReader, outputDir)
 
 	exitErr := cmd.Wait()
 	end := time.Now()
@@ -97,6 +106,13 @@ func (r *CodexRunner) Run(ctx context.Context, t *task.Task, repoDir, outputDir 
 		Duration:  end.Sub(start),
 		OutputDir: outputDir,
 		LastMsg:   lastMsg,
+	}
+
+	// idle timeout takes highest priority — the process was killed due to inactivity
+	if idleReader.Idled() {
+		result.State = task.StateFailed
+		result.Error = fmt.Sprintf("idle timeout: no output for %s", r.idleTimeout)
+		return result
 	}
 
 	// rate limit takes priority over other failure signals

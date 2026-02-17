@@ -23,6 +23,7 @@ func RunWithCascade(
 	runnerNames []string,
 	maxRuntime time.Duration,
 	blacklist *runner.RunnerBlacklist,
+	limiter *runner.ProviderLimiter,
 ) *task.TaskResult {
 	if len(runnerNames) == 0 {
 		return &task.TaskResult{
@@ -71,10 +72,16 @@ func RunWithCascade(
 			}
 		}
 
+		if limiter != nil {
+			limiter.Acquire(name)
+		}
 		taskCtx, taskCancel := context.WithTimeout(ctx, maxRuntime)
 		start := time.Now()
 		result := r.Run(taskCtx, t, repoDir, attemptDir)
 		taskCancel()
+		if limiter != nil {
+			limiter.Release(name)
+		}
 		elapsed := time.Since(start)
 
 		attempts = append(attempts, task.AttemptInfo{
@@ -125,10 +132,10 @@ func RunWithCascade(
 
 // buildRunnerRegistry constructs runner instances from built-in defaults
 // and task file profiles. Profiles override built-in runners of the same name.
-func buildRunnerRegistry(tf *task.TaskFile) (map[string]runner.Runner, error) {
+func buildRunnerRegistry(tf *task.TaskFile, idleTimeout time.Duration) (map[string]runner.Runner, error) {
 	runners := map[string]runner.Runner{
-		"codex":  runner.NewCodexRunner(),
-		"claude": runner.NewClaudeRunner(),
+		"codex":  runner.NewCodexRunner(idleTimeout),
+		"claude": runner.NewClaudeRunner(idleTimeout),
 		"script": runner.NewScriptRunner(),
 	}
 
@@ -139,9 +146,9 @@ func buildRunnerRegistry(tf *task.TaskFile) (map[string]runner.Runner, error) {
 		}
 		switch profile.Type {
 		case "codex":
-			runners[name] = runner.NewCodexRunnerWithProfile(profile.Model, profile.Profile, resolved)
+			runners[name] = runner.NewCodexRunnerWithProfile(profile.Model, profile.Profile, resolved, idleTimeout)
 		case "claude":
-			runners[name] = runner.NewClaudeRunnerWithProfile(profile.Model, resolved)
+			runners[name] = runner.NewClaudeRunnerWithProfile(profile.Model, resolved, idleTimeout)
 		case "script":
 			runners[name] = runner.NewScriptRunnerWithEnv(resolved)
 		default:
@@ -150,6 +157,15 @@ func buildRunnerRegistry(tf *task.TaskFile) (map[string]runner.Runner, error) {
 	}
 
 	return runners, nil
+}
+
+// buildProviderLimiter creates a ProviderLimiter from concurrency limits.
+// Only entries with limit > 0 are enforced.
+func buildProviderLimiter(limits map[string]int) *runner.ProviderLimiter {
+	if len(limits) == 0 {
+		return nil
+	}
+	return runner.NewProviderLimiter(limits)
 }
 
 // resolveRunnerCascade determines the ordered list of runners to try for a task.

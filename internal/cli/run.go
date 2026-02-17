@@ -22,14 +22,15 @@ import (
 
 func newRunCmd() *cobra.Command {
 	var (
-		tasksFile  string
-		workers    int
-		verify     bool
-		reposDir   string
-		filter     string
-		dryRun     bool
-		maxRuntime time.Duration
-		failFast   bool
+		tasksFile   string
+		workers     int
+		verify      bool
+		reposDir    string
+		filter      string
+		dryRun      bool
+		maxRuntime  time.Duration
+		idleTimeout time.Duration
+		failFast    bool
 	)
 
 	cmd := &cobra.Command{
@@ -49,13 +50,16 @@ func newRunCmd() *cobra.Command {
 			if !cmd.Flags().Changed("max-runtime") && cfg.MaxRuntime > 0 {
 				maxRuntime = cfg.MaxRuntime
 			}
+			if !cmd.Flags().Changed("idle-timeout") && cfg.IdleTimeout > 0 {
+				idleTimeout = cfg.IdleTimeout
+			}
 			if !cmd.Flags().Changed("fail-fast") && cfg.FailFast {
 				failFast = cfg.FailFast
 			}
 			if !cmd.Flags().Changed("verify") && cfg.Verify {
 				verify = cfg.Verify
 			}
-			return runTasks(tasksFile, workers, verify, reposDir, filter, dryRun, maxRuntime, failFast, cfg.PostRun)
+			return runTasks(tasksFile, workers, verify, reposDir, filter, dryRun, maxRuntime, idleTimeout, failFast, cfg)
 		},
 	}
 
@@ -66,12 +70,13 @@ func newRunCmd() *cobra.Command {
 	cmd.Flags().StringVar(&filter, "filter", "", "only run tasks matching ID glob pattern")
 	cmd.Flags().BoolVar(&dryRun, "dry-run", false, "show execution plan without running")
 	cmd.Flags().DurationVar(&maxRuntime, "max-runtime", 30*time.Minute, "per-task timeout duration")
+	cmd.Flags().DurationVar(&idleTimeout, "idle-timeout", 5*time.Minute, "kill task after no stdout for this duration")
 	cmd.Flags().BoolVar(&failFast, "fail-fast", false, "stop spawning new tasks on first failure")
 
 	return cmd
 }
 
-func runTasks(tasksFile string, workers int, verify bool, reposDir, filter string, dryRun bool, maxRuntime time.Duration, failFast bool, postRun string) error {
+func runTasks(tasksFile string, workers int, verify bool, reposDir, filter string, dryRun bool, maxRuntime, idleTimeout time.Duration, failFast bool, cfg *config.Settings) error {
 	// load tasks
 	tf, err := config.Load(tasksFile)
 	if err != nil {
@@ -126,16 +131,18 @@ func runTasks(tasksFile string, workers int, verify bool, reposDir, filter strin
 	}
 
 	report, err := executeRun(execRunConfig{
-		tasksFile:  tasksFile,
-		taskFile:   tf,
-		tasks:      tasks,
-		graph:      graph,
-		workers:    workers,
-		reposDir:   reposDir,
-		filter:     filter,
-		maxRuntime: maxRuntime,
-		failFast:   failFast,
-		postRun:    postRun,
+		tasksFile:   tasksFile,
+		taskFile:    tf,
+		tasks:       tasks,
+		graph:       graph,
+		workers:     workers,
+		reposDir:    reposDir,
+		filter:      filter,
+		maxRuntime:  maxRuntime,
+		idleTimeout: idleTimeout,
+		failFast:    failFast,
+		postRun:     cfg.PostRun,
+		settings:    cfg,
 	})
 	if err != nil {
 		return err
@@ -162,16 +169,18 @@ func runTasks(tasksFile string, workers int, verify bool, reposDir, filter strin
 
 // execRunConfig holds parameters for executeRun.
 type execRunConfig struct {
-	tasksFile  string
-	taskFile   *task.TaskFile // full parsed file with profiles
-	tasks      []task.Task
-	graph      *task.Graph
-	workers    int
-	reposDir   string
-	filter     string
-	maxRuntime time.Duration
-	failFast   bool
-	postRun    string // shell command to run after report is written
+	tasksFile   string
+	taskFile    *task.TaskFile // full parsed file with profiles
+	tasks       []task.Task
+	graph       *task.Graph
+	workers     int
+	reposDir    string
+	filter      string
+	maxRuntime  time.Duration
+	idleTimeout time.Duration
+	failFast    bool
+	postRun     string           // shell command to run after report is written
+	settings    *config.Settings // runtime settings for limiter etc.
 }
 
 // execRunResult wraps the report and run directory.
@@ -223,7 +232,7 @@ func executeRun(cfg execRunConfig) (*execRunResult, error) {
 	if tf == nil {
 		tf = &task.TaskFile{}
 	}
-	runners, err := buildRunnerRegistry(tf)
+	runners, err := buildRunnerRegistry(tf, cfg.idleTimeout)
 	if err != nil {
 		return nil, fmt.Errorf("build runner registry: %w", err)
 	}
@@ -233,6 +242,18 @@ func executeRun(cfg execRunConfig) (*execRunResult, error) {
 		defaultRunner = "codex"
 	}
 	blacklist := runner.NewRunnerBlacklist()
+
+	// build per-provider concurrency limiter from settings
+	var concurrencyLimits map[string]int
+	if cfg.settings != nil {
+		concurrencyLimits = make(map[string]int)
+		for name, rp := range cfg.settings.Runners {
+			if rp.MaxConcurrent > 0 {
+				concurrencyLimits[name] = rp.MaxConcurrent
+			}
+		}
+	}
+	limiter := buildProviderLimiter(concurrencyLimits)
 
 	// setup review pool if configured
 	var reviewPool *ReviewPool
@@ -257,7 +278,7 @@ func executeRun(cfg execRunConfig) (*execRunResult, error) {
 		writeTaskMeta(outputDir, t)
 
 		cascade := resolveRunnerCascade(t, defaultRunner, tf.DefaultFallbacks)
-		return RunWithCascade(ctx, t, repoDir, outputDir, runners, cascade, cfg.maxRuntime, blacklist)
+		return RunWithCascade(ctx, t, repoDir, outputDir, runners, cascade, cfg.maxRuntime, blacklist, limiter)
 	}
 
 	// run scheduler
