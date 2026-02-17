@@ -6,6 +6,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/ppiankov/runforge/internal/config"
 	"github.com/ppiankov/runforge/internal/runner"
 	"github.com/ppiankov/runforge/internal/task"
 )
@@ -344,6 +345,79 @@ func TestStripeRunners_NoFallbacks(t *testing.T) {
 	// no-op when no fallbacks configured
 	if tasks[0].Runner != "" {
 		t.Fatalf("expected empty runner, got %s", tasks[0].Runner)
+	}
+}
+
+func TestMergeSettings_FillsDefaults(t *testing.T) {
+	tf := &task.TaskFile{
+		Tasks: []task.Task{{ID: "t1", Repo: "r", Prompt: "p"}},
+	}
+	cfg := &config.Settings{
+		DefaultRunner:    "codex",
+		DefaultFallbacks: []string{"deepseek", "zai"},
+		Runners: map[string]*config.RunnerProfile{
+			"deepseek": {Type: "codex", Profile: "deepseek"},
+			"zai":      {Type: "codex", Env: map[string]string{"K": "V"}},
+		},
+	}
+
+	mergeSettings(tf, cfg)
+
+	if tf.DefaultRunner != "codex" {
+		t.Fatalf("expected default_runner=codex, got %s", tf.DefaultRunner)
+	}
+	if len(tf.DefaultFallbacks) != 2 || tf.DefaultFallbacks[0] != "deepseek" {
+		t.Fatalf("expected fallbacks from settings, got %v", tf.DefaultFallbacks)
+	}
+	if len(tf.Runners) != 2 {
+		t.Fatalf("expected 2 runner profiles, got %d", len(tf.Runners))
+	}
+	if tf.Runners["zai"].Env["K"] != "V" {
+		t.Fatal("expected zai env to be merged")
+	}
+}
+
+func TestMergeSettings_TaskFileWins(t *testing.T) {
+	tf := &task.TaskFile{
+		DefaultRunner:    "custom",
+		DefaultFallbacks: []string{"a"},
+		Runners: map[string]*task.RunnerProfileConfig{
+			"zai": {Type: "claude"},
+		},
+		Tasks: []task.Task{{ID: "t1", Repo: "r", Prompt: "p"}},
+	}
+	cfg := &config.Settings{
+		DefaultRunner:    "codex",
+		DefaultFallbacks: []string{"deepseek", "zai"},
+		Runners: map[string]*config.RunnerProfile{
+			"zai":      {Type: "codex"},
+			"deepseek": {Type: "codex"},
+		},
+	}
+
+	mergeSettings(tf, cfg)
+
+	if tf.DefaultRunner != "custom" {
+		t.Fatalf("task file default_runner should win, got %s", tf.DefaultRunner)
+	}
+	if len(tf.DefaultFallbacks) != 1 || tf.DefaultFallbacks[0] != "a" {
+		t.Fatalf("task file fallbacks should win, got %v", tf.DefaultFallbacks)
+	}
+	if tf.Runners["zai"].Type != "claude" {
+		t.Fatal("task file runner profile should not be overwritten")
+	}
+	if _, ok := tf.Runners["deepseek"]; !ok {
+		t.Fatal("new runner profile from settings should be added")
+	}
+}
+
+func TestMergeSettings_NilConfig(t *testing.T) {
+	tf := &task.TaskFile{
+		Tasks: []task.Task{{ID: "t1", Repo: "r", Prompt: "p"}},
+	}
+	mergeSettings(tf, nil)
+	if tf.DefaultRunner != "" {
+		t.Fatal("nil config should not modify task file")
 	}
 }
 

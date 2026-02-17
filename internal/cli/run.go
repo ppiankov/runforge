@@ -84,6 +84,9 @@ func runTasks(tasksFile string, workers int, verify bool, reposDir, filter strin
 		return fmt.Errorf("load tasks: %w", err)
 	}
 
+	// merge settings into task file (settings provide defaults, task file overrides)
+	mergeSettings(tf, cfg)
+
 	// apply filter
 	tasks := tf.Tasks
 	if filter != "" {
@@ -462,6 +465,41 @@ func matchGlob(s, pattern string) bool {
 	}
 
 	return false
+}
+
+// mergeSettings applies settings defaults to a task file.
+// Task file values take precedence; settings fill in gaps.
+func mergeSettings(tf *task.TaskFile, cfg *config.Settings) {
+	if cfg == nil {
+		return
+	}
+
+	// merge default_runner
+	if tf.DefaultRunner == "" && cfg.DefaultRunner != "" {
+		tf.DefaultRunner = cfg.DefaultRunner
+	}
+
+	// merge default_fallbacks
+	if len(tf.DefaultFallbacks) == 0 && len(cfg.DefaultFallbacks) > 0 {
+		tf.DefaultFallbacks = cfg.DefaultFallbacks
+	}
+
+	// merge runner profiles (settings provide base, task file overrides)
+	if len(cfg.Runners) > 0 {
+		if tf.Runners == nil {
+			tf.Runners = make(map[string]*task.RunnerProfileConfig, len(cfg.Runners))
+		}
+		for name, rp := range cfg.Runners {
+			if _, exists := tf.Runners[name]; !exists {
+				tf.Runners[name] = &task.RunnerProfileConfig{
+					Type:    rp.Type,
+					Model:   rp.Model,
+					Profile: rp.Profile,
+					Env:     rp.Env,
+				}
+			}
+		}
+	}
 }
 
 // stripeRunners distributes primary runner assignments across available
