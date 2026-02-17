@@ -13,6 +13,7 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"github.com/ppiankov/runforge/internal/config"
 	"github.com/ppiankov/runforge/internal/generate"
 	"github.com/ppiankov/runforge/internal/task"
 )
@@ -30,7 +31,17 @@ func newGenerateCmd() *cobra.Command {
 		Use:   "generate",
 		Short: "Generate task file from work-orders.md files",
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return generateTasks(reposDir, output, owner, filterRepo, defaultRunner)
+			cfg, err := config.LoadSettings(configFile)
+			if err != nil {
+				return fmt.Errorf("load config: %w", err)
+			}
+			if !cmd.Flags().Changed("repos-dir") && cfg.ReposDir != "" {
+				reposDir = cfg.ReposDir
+			}
+			if !cmd.Flags().Changed("runner") && cfg.DefaultRunner != "" {
+				defaultRunner = cfg.DefaultRunner
+			}
+			return generateTasks(reposDir, output, owner, filterRepo, defaultRunner, cfg)
 		},
 	}
 
@@ -43,7 +54,7 @@ func newGenerateCmd() *cobra.Command {
 	return cmd
 }
 
-func generateTasks(reposDir, output, owner, filterRepo, defaultRunner string) error {
+func generateTasks(reposDir, output, owner, filterRepo, defaultRunner string, cfg *config.Settings) error {
 	reposDir, err := filepath.Abs(reposDir)
 	if err != nil {
 		return fmt.Errorf("resolve repos dir: %w", err)
@@ -149,6 +160,26 @@ func generateTasks(reposDir, output, owner, filterRepo, defaultRunner string) er
 		Description: fmt.Sprintf("Generated from work-orders.md in %s", filepath.Base(reposDir)),
 		Generated:   time.Now().Format("2006-01-02"),
 		Tasks:       tasks,
+	}
+
+	// Inject runner profiles from settings config.
+	if cfg != nil {
+		if cfg.DefaultRunner != "" {
+			tf.DefaultRunner = cfg.DefaultRunner
+		}
+		if len(cfg.DefaultFallbacks) > 0 {
+			tf.DefaultFallbacks = cfg.DefaultFallbacks
+		}
+		if len(cfg.Runners) > 0 {
+			tf.Runners = make(map[string]*task.RunnerProfileConfig, len(cfg.Runners))
+			for name, rp := range cfg.Runners {
+				tf.Runners[name] = &task.RunnerProfileConfig{
+					Type:  rp.Type,
+					Model: rp.Model,
+					Env:   rp.Env,
+				}
+			}
+		}
 	}
 
 	data, err := json.MarshalIndent(tf, "", "  ")
