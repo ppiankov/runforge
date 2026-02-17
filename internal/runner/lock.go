@@ -1,6 +1,7 @@
 package runner
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -10,6 +11,8 @@ import (
 	"syscall"
 	"time"
 )
+
+const lockPollInterval = 5 * time.Second
 
 const lockFileName = ".runforge.lock"
 
@@ -62,6 +65,22 @@ func Acquire(repoDir, taskID string) error {
 	}
 
 	return nil
+}
+
+// WaitAndAcquire retries Acquire until the lock is obtained or ctx is cancelled.
+func WaitAndAcquire(ctx context.Context, repoDir, taskID string) error {
+	for {
+		err := Acquire(repoDir, taskID)
+		if err == nil {
+			return nil
+		}
+		slog.Debug("waiting for repo lock", "repo", repoDir, "task", taskID, "holder", err)
+		select {
+		case <-ctx.Done():
+			return fmt.Errorf("lock wait cancelled: %w", ctx.Err())
+		case <-time.After(lockPollInterval):
+		}
+	}
 }
 
 // Release removes the lock file from repoDir. It is idempotent.

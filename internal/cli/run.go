@@ -236,7 +236,7 @@ func executeRun(cfg execRunConfig) (*execRunResult, error) {
 	}
 
 	execFn := func(ctx context.Context, t *task.Task, repoDir, outputDir string) *task.TaskResult {
-		if err := runner.Acquire(repoDir, t.ID); err != nil {
+		if err := runner.WaitAndAcquire(ctx, repoDir, t.ID); err != nil {
 			return &task.TaskResult{
 				TaskID:  t.ID,
 				State:   task.StateFailed,
