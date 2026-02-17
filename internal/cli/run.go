@@ -236,13 +236,15 @@ func executeRun(cfg execRunConfig) (*execRunResult, error) {
 		}
 		srv := proxy.New(proxyCfg)
 		if _, err := srv.Start(); err != nil {
-			return nil, fmt.Errorf("start proxy: %w", err)
+			// non-fatal: another runforge process may already own the port
+			slog.Warn("proxy start failed (may already be running)", "error", err)
+		} else {
+			defer func() {
+				if err := srv.Stop(); err != nil {
+					slog.Warn("proxy stop error", "error", err)
+				}
+			}()
 		}
-		defer func() {
-			if err := srv.Stop(); err != nil {
-				slog.Warn("proxy stop error", "error", err)
-			}
-		}()
 	}
 
 	// build runner registry from profiles
