@@ -46,7 +46,15 @@ func Acquire(repoDir, taskID string) error {
 	// lock exists — check if stale
 	existing, readErr := ReadLock(repoDir)
 	if readErr != nil {
-		return fmt.Errorf("repo %s is locked (could not read lock: %v)", repoDir, readErr)
+		// corrupt or empty lock file — remove and retry
+		slog.Warn("removing corrupt lock file", "repo", repoDir, "error", readErr)
+		if rmErr := os.Remove(lockPath); rmErr != nil && !errors.Is(rmErr, os.ErrNotExist) {
+			return fmt.Errorf("remove corrupt lock: %w", rmErr)
+		}
+		if err := writeLock(lockPath, &info); err != nil {
+			return fmt.Errorf("acquire after corrupt removal: %w", err)
+		}
+		return nil
 	}
 
 	if isProcessAlive(existing.PID) {
@@ -107,9 +115,13 @@ func ReadLock(repoDir string) (*LockInfo, error) {
 	return &info, nil
 }
 
-// writeLock atomically creates the lock file using O_CREATE|O_EXCL.
+// writeLock atomically creates the lock file.
+// Writes JSON to a temp file first, then hard-links it into place so
+// readers never see partial content. Link fails with ErrExist when the
+// lock is already held, preserving the exclusive-creation semantics.
 func writeLock(path string, info *LockInfo) error {
-	f, err := os.OpenFile(path, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o644)
+	tmp := fmt.Sprintf("%s.tmp.%d.%d", path, os.Getpid(), time.Now().UnixNano())
+	f, err := os.OpenFile(tmp, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o644)
 	if err != nil {
 		return err
 	}
@@ -117,9 +129,23 @@ func writeLock(path string, info *LockInfo) error {
 	encErr := json.NewEncoder(f).Encode(info)
 	closeErr := f.Close()
 	if encErr != nil {
+		_ = os.Remove(tmp)
 		return encErr
 	}
-	return closeErr
+	if closeErr != nil {
+		_ = os.Remove(tmp)
+		return closeErr
+	}
+
+	if err := os.Link(tmp, path); err != nil {
+		_ = os.Remove(tmp)
+		if errors.Is(err, os.ErrExist) {
+			return os.ErrExist
+		}
+		return err
+	}
+	_ = os.Remove(tmp)
+	return nil
 }
 
 // isProcessAlive checks if a process with the given PID exists and is running.
