@@ -118,6 +118,9 @@ func generateTasks(reposDir, output, owner, filterRepo, defaultRunner string, cf
 			if wo.Summary == "" {
 				prompt = wo.Title + ". " + prompt
 			}
+			if cfg != nil && cfg.PromptConventions != "" {
+				prompt += "\n\n" + cfg.PromptConventions
+			}
 
 			t := task.Task{
 				ID:       generate.TaskID(repoName, wo.RawID),
