@@ -21,6 +21,7 @@ func newRerunCmd() *cobra.Command {
 		maxRuntime  time.Duration
 		idleTimeout time.Duration
 		failFast    bool
+		tuiMode     string
 	)
 
 	cmd := &cobra.Command{
@@ -46,7 +47,7 @@ func newRerunCmd() *cobra.Command {
 			if !cmd.Flags().Changed("fail-fast") && cfg.FailFast {
 				failFast = cfg.FailFast
 			}
-			return rerunTasks(runDir, workers, reposDir, maxRuntime, idleTimeout, failFast, cfg)
+			return rerunTasks(runDir, workers, reposDir, maxRuntime, idleTimeout, failFast, tuiMode, cfg)
 		},
 	}
 
@@ -56,12 +57,13 @@ func newRerunCmd() *cobra.Command {
 	cmd.Flags().DurationVar(&maxRuntime, "max-runtime", 30*time.Minute, "per-task timeout duration")
 	cmd.Flags().DurationVar(&idleTimeout, "idle-timeout", 5*time.Minute, "kill task after no stdout for this duration")
 	cmd.Flags().BoolVar(&failFast, "fail-fast", false, "stop spawning new tasks on first failure")
+	cmd.Flags().StringVar(&tuiMode, "tui", "auto", "display mode: full (interactive TUI), minimal (live status), off (no live display), auto (detect TTY)")
 	_ = cmd.MarkFlagRequired("run-dir")
 
 	return cmd
 }
 
-func rerunTasks(runDir string, workers int, reposDir string, maxRuntime, idleTimeout time.Duration, failFast bool, cfg *config.Settings) error {
+func rerunTasks(runDir string, workers int, reposDir string, maxRuntime, idleTimeout time.Duration, failFast bool, tuiMode string, cfg *config.Settings) error {
 	// load previous report
 	reportPath := filepath.Join(runDir, "report.json")
 	prevReport, err := reporter.ReadJSONReport(reportPath)
@@ -89,35 +91,41 @@ func rerunTasks(runDir string, workers int, reposDir string, maxRuntime, idleTim
 		slog.Warn("rate limit may still be active", "resets_in", remaining)
 	}
 
-	// load original task file
-	tf, err := config.Load(prevReport.TasksFile)
+	// load original task file(s)
+	taskFiles, err := config.LoadMulti(prevReport.TasksFiles)
 	if err != nil {
-		return fmt.Errorf("load original task file %q: %w", prevReport.TasksFile, err)
+		return fmt.Errorf("load original task files: %w", err)
 	}
 
 	// merge current config runner profiles — rerun should use the latest
 	// runner configuration, not the stale one baked into the original task file.
-	// This ensures new fallbacks (e.g. deepseek) are available on rerun.
-	if cfg != nil {
-		if cfg.DefaultRunner != "" {
-			tf.DefaultRunner = cfg.DefaultRunner
-		}
-		if len(cfg.DefaultFallbacks) > 0 {
-			tf.DefaultFallbacks = cfg.DefaultFallbacks
-		}
-		if len(cfg.Runners) > 0 {
-			if tf.Runners == nil {
-				tf.Runners = make(map[string]*task.RunnerProfileConfig)
+	for _, f := range taskFiles {
+		if cfg != nil {
+			if cfg.DefaultRunner != "" {
+				f.DefaultRunner = cfg.DefaultRunner
 			}
-			for name, rp := range cfg.Runners {
-				tf.Runners[name] = &task.RunnerProfileConfig{
-					Type:    rp.Type,
-					Model:   rp.Model,
-					Profile: rp.Profile,
-					Env:     rp.Env,
+			if len(cfg.DefaultFallbacks) > 0 {
+				f.DefaultFallbacks = cfg.DefaultFallbacks
+			}
+			if len(cfg.Runners) > 0 {
+				if f.Runners == nil {
+					f.Runners = make(map[string]*task.RunnerProfileConfig)
+				}
+				for name, rp := range cfg.Runners {
+					f.Runners[name] = &task.RunnerProfileConfig{
+						Type:    rp.Type,
+						Model:   rp.Model,
+						Profile: rp.Profile,
+						Env:     rp.Env,
+					}
 				}
 			}
 		}
+	}
+
+	tf, err := config.MergeTaskFiles(taskFiles)
+	if err != nil {
+		return fmt.Errorf("merge task files for rerun: %w", err)
 	}
 
 	// filter to rerunnable tasks and strip completed dependencies
@@ -160,7 +168,7 @@ func rerunTasks(runDir string, workers int, reposDir string, maxRuntime, idleTim
 	}
 
 	if len(tasks) == 0 {
-		return fmt.Errorf("no rerunnable tasks found in task file %q", prevReport.TasksFile)
+		return fmt.Errorf("no rerunnable tasks found in task files %v", prevReport.TasksFiles)
 	}
 
 	// use original values unless overridden
@@ -192,7 +200,7 @@ func rerunTasks(runDir string, workers int, reposDir string, maxRuntime, idleTim
 		countState(prevReport, task.StateRateLimited, rerunIDs))
 
 	result, err := executeRun(execRunConfig{
-		tasksFile:   prevReport.TasksFile,
+		tasksFiles:  prevReport.TasksFiles,
 		taskFile:    tf,
 		tasks:       tasks,
 		graph:       graph,
@@ -203,6 +211,7 @@ func rerunTasks(runDir string, workers int, reposDir string, maxRuntime, idleTim
 		failFast:    failFast,
 		postRun:     cfg.PostRun,
 		settings:    cfg,
+		tuiMode:     tuiMode,
 	})
 	if err != nil {
 		return err

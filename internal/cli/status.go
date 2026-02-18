@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"strings"
 
 	"github.com/spf13/cobra"
 
@@ -40,7 +41,7 @@ func showStatus(runDir string) error {
 	}
 
 	fmt.Printf("Run: %s\n", report.Timestamp.Format("2006-01-02 15:04:05"))
-	fmt.Printf("Tasks file: %s\n", report.TasksFile)
+	fmt.Printf("Tasks files: %s\n", strings.Join(report.TasksFiles, ", "))
 	fmt.Printf("Workers: %d\n", report.Workers)
 	if report.Filter != "" {
 		fmt.Printf("Filter: %s\n", report.Filter)

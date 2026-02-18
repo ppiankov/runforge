@@ -126,7 +126,7 @@ func TestWriteJSONReport(t *testing.T) {
 
 	report := &task.RunReport{
 		Timestamp:  time.Date(2026, 2, 15, 12, 0, 0, 0, time.UTC),
-		TasksFile:  "tasks.json",
+		TasksFiles: []string{"tasks.json"},
 		Workers:    4,
 		TotalTasks: 3,
 		Completed:  2,
