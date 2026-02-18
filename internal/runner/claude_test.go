@@ -61,8 +61,8 @@ func TestParseClaudeEvents_EmptyInput(t *testing.T) {
 	r := strings.NewReader("")
 	failed, lastMsg := parseClaudeEvents(r, t.TempDir())
 
-	if failed {
-		t.Error("empty input should not be failed")
+	if !failed {
+		t.Error("empty input should be treated as failure (likely argument error)")
 	}
 	if lastMsg != "" {
 		t.Errorf("expected empty last message, got %q", lastMsg)

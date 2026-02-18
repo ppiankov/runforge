@@ -59,6 +59,7 @@ func (r *ClaudeRunner) Run(ctx context.Context, t *task.Task, repoDir, outputDir
 	args := []string{
 		"-p",
 		"--output-format", "stream-json",
+		"--verbose",
 		"--dangerously-skip-permissions",
 	}
 	if r.model != "" {
@@ -152,6 +153,7 @@ func parseClaudeEvents(r io.Reader, outputDir string) (bool, string) {
 
 	var failed bool
 	var lastMsg string
+	var eventCount int
 
 	for scanner.Scan() {
 		line := scanner.Bytes()
@@ -161,6 +163,8 @@ func parseClaudeEvents(r io.Reader, outputDir string) (bool, string) {
 			_, _ = eventsFile.Write(line)
 			_, _ = eventsFile.Write([]byte("\n"))
 		}
+
+		eventCount++
 
 		var ev claudeEvent
 		if err := json.Unmarshal(line, &ev); err != nil {
@@ -185,6 +189,11 @@ func parseClaudeEvents(r io.Reader, outputDir string) (bool, string) {
 				}
 			}
 		}
+	}
+
+	// no events at all means claude produced no output (likely argument error)
+	if eventCount == 0 {
+		failed = true
 	}
 
 	return failed, lastMsg
