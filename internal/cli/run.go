@@ -287,7 +287,7 @@ func executeRun(cfg execRunConfig) (*execRunResult, error) {
 	if defaultRunner == "" {
 		defaultRunner = "codex"
 	}
-	blacklist := runner.NewRunnerBlacklist()
+	blacklist := runner.LoadBlacklist(runner.DefaultBlacklistPath())
 
 	// build per-provider concurrency limiter from settings
 	var concurrencyLimits map[string]int
