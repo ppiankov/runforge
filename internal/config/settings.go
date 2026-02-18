@@ -30,6 +30,9 @@ type Settings struct {
 	// Responses API → Chat Completions translation proxy
 	Proxy *ProxyConfig `yaml:"proxy,omitempty"`
 
+	// Conventions appended verbatim to every generated task prompt
+	PromptConventions string `yaml:"prompt_conventions,omitempty"`
+
 	// Scan configuration
 	Scan *ScanConfig `yaml:"scan,omitempty"`
 }
