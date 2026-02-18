@@ -41,14 +41,15 @@ func (s TaskState) String() string {
 
 // Task represents a single work order from the tasks file.
 type Task struct {
-	ID        string   `json:"id"`
-	Repo      string   `json:"repo"`
-	Priority  int      `json:"priority"`
-	DependsOn []string `json:"depends_on,omitempty"`
-	Title     string   `json:"title"`
-	Prompt    string   `json:"prompt"`
-	Runner    string   `json:"runner,omitempty"`    // default: from TaskFile.DefaultRunner
-	Fallbacks []string `json:"fallbacks,omitempty"` // runner profiles to try on failure/rate-limit
+	ID         string   `json:"id"`
+	Repo       string   `json:"repo"`
+	Priority   int      `json:"priority"`
+	DependsOn  []string `json:"depends_on,omitempty"`
+	Title      string   `json:"title"`
+	Prompt     string   `json:"prompt"`
+	Runner     string   `json:"runner,omitempty"`      // default: from TaskFile.DefaultRunner
+	Fallbacks  []string `json:"fallbacks,omitempty"`   // runner profiles to try on failure/rate-limit
+	SourceFile string   `json:"source_file,omitempty"` // populated during multi-file load
 }
 
 // UnmarshalJSON supports both string and array formats for depends_on.
@@ -93,10 +94,11 @@ func (t *Task) UnmarshalJSON(data []byte) error {
 // Profiles allow the same runner type (e.g., "claude") to be used with different
 // API endpoints or credentials (e.g., Z.ai proxy, direct API).
 type RunnerProfileConfig struct {
-	Type    string            `json:"type"`              // "codex", "claude", "script"
-	Model   string            `json:"model,omitempty"`   // model override passed via --model flag
-	Profile string            `json:"profile,omitempty"` // codex --profile name (references config.toml)
-	Env     map[string]string `json:"env,omitempty"`     // env overrides; "env:VAR" = read from OS
+	Type           string            `json:"type"`                      // "codex", "claude", "gemini", "opencode", "script"
+	Model          string            `json:"model,omitempty"`           // model override passed via --model flag
+	Profile        string            `json:"profile,omitempty"`         // codex --profile name (references config.toml)
+	Env            map[string]string `json:"env,omitempty"`             // env overrides; "env:VAR" = read from OS
+	DataCollection bool              `json:"data_collection,omitempty"` // true = prompts may be used for model training
 }
 
 // TaskFile is the top-level structure of the tasks JSON file.
@@ -156,7 +158,7 @@ type ReviewResult struct {
 // RunReport is the final output of a runforge execution.
 type RunReport struct {
 	Timestamp     time.Time              `json:"timestamp"`
-	TasksFile     string                 `json:"tasks_file"`
+	TasksFiles    []string               `json:"tasks_files"`
 	Workers       int                    `json:"workers"`
 	Filter        string                 `json:"filter,omitempty"`
 	ReposDir      string                 `json:"repos_dir"`
@@ -168,4 +170,26 @@ type RunReport struct {
 	RateLimited   int                    `json:"rate_limited"`
 	TotalDuration time.Duration          `json:"total_duration"`
 	ResetsAt      time.Time              `json:"resets_at,omitempty"`
+}
+
+// UnmarshalJSON supports both old ("tasks_file": "x.json") and new
+// ("tasks_files": ["a.json"]) report formats for backward compatibility.
+func (r *RunReport) UnmarshalJSON(data []byte) error {
+	type Alias RunReport
+	aux := &struct {
+		TasksFile  string   `json:"tasks_file,omitempty"`
+		TasksFiles []string `json:"tasks_files,omitempty"`
+		*Alias
+	}{Alias: (*Alias)(r)}
+
+	if err := json.Unmarshal(data, aux); err != nil {
+		return err
+	}
+
+	if len(aux.TasksFiles) > 0 {
+		r.TasksFiles = aux.TasksFiles
+	} else if aux.TasksFile != "" {
+		r.TasksFiles = []string{aux.TasksFile}
+	}
+	return nil
 }

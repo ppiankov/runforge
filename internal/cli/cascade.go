@@ -134,9 +134,11 @@ func RunWithCascade(
 // and task file profiles. Profiles override built-in runners of the same name.
 func buildRunnerRegistry(tf *task.TaskFile, idleTimeout time.Duration) (map[string]runner.Runner, error) {
 	runners := map[string]runner.Runner{
-		"codex":  runner.NewCodexRunner(idleTimeout),
-		"claude": runner.NewClaudeRunner(idleTimeout),
-		"script": runner.NewScriptRunner(),
+		"codex":    runner.NewCodexRunner(idleTimeout),
+		"claude":   runner.NewClaudeRunner(idleTimeout),
+		"gemini":   runner.NewGeminiRunner(idleTimeout),
+		"opencode": runner.NewOpencodeRunner(idleTimeout),
+		"script":   runner.NewScriptRunner(),
 	}
 
 	for name, profile := range tf.Runners {
@@ -149,6 +151,10 @@ func buildRunnerRegistry(tf *task.TaskFile, idleTimeout time.Duration) (map[stri
 			runners[name] = runner.NewCodexRunnerWithProfile(profile.Model, profile.Profile, resolved, idleTimeout)
 		case "claude":
 			runners[name] = runner.NewClaudeRunnerWithProfile(profile.Model, resolved, idleTimeout)
+		case "gemini":
+			runners[name] = runner.NewGeminiRunnerWithProfile(profile.Model, resolved, idleTimeout)
+		case "opencode":
+			runners[name] = runner.NewOpencodeRunnerWithProfile(profile.Model, resolved, idleTimeout)
 		case "script":
 			runners[name] = runner.NewScriptRunnerWithEnv(resolved)
 		default:
@@ -166,6 +172,35 @@ func buildProviderLimiter(limits map[string]int) *runner.ProviderLimiter {
 		return nil
 	}
 	return runner.NewProviderLimiter(limits)
+}
+
+// filterDataCollectionRunners removes runners marked with data_collection: true
+// from the cascade when the task targets a private repo. This is a structural
+// safeguard: private code must never be sent to providers that use data for training.
+func filterDataCollectionRunners(
+	cascade []string,
+	repo string,
+	profiles map[string]*task.RunnerProfileConfig,
+	privateRepos map[string]struct{},
+) []string {
+	if len(privateRepos) == 0 {
+		return cascade
+	}
+	if _, isPrivate := privateRepos[repo]; !isPrivate {
+		return cascade
+	}
+
+	filtered := make([]string, 0, len(cascade))
+	for _, name := range cascade {
+		p, ok := profiles[name]
+		if ok && p.DataCollection {
+			slog.Warn("skipping data-collecting runner for private repo",
+				"runner", name, "repo", repo)
+			continue
+		}
+		filtered = append(filtered, name)
+	}
+	return filtered
 }
 
 // resolveRunnerCascade determines the ordered list of runners to try for a task.

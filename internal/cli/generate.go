@@ -174,10 +174,11 @@ func generateTasks(reposDir, output, owner, filterRepo, defaultRunner string, cf
 			tf.Runners = make(map[string]*task.RunnerProfileConfig, len(cfg.Runners))
 			for name, rp := range cfg.Runners {
 				tf.Runners[name] = &task.RunnerProfileConfig{
-					Type:    rp.Type,
-					Model:   rp.Model,
-					Profile: rp.Profile,
-					Env:     rp.Env,
+					Type:           rp.Type,
+					Model:          rp.Model,
+					Profile:        rp.Profile,
+					Env:            rp.Env,
+					DataCollection: rp.DataCollection,
 				}
 			}
 		}
@@ -193,6 +194,7 @@ func generateTasks(reposDir, output, owner, filterRepo, defaultRunner string, cf
 	}
 
 	fmt.Printf("Generated %d tasks from %d repos → %s\n", len(tasks), repoCount, output)
+	fmt.Printf("\nTo run:\n  runforge run --tasks %s --tui minimal\n", output)
 	return nil
 }
 

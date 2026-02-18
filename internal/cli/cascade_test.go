@@ -421,6 +421,82 @@ func TestMergeSettings_NilConfig(t *testing.T) {
 	}
 }
 
+func TestFilterDataCollection_PublicRepo(t *testing.T) {
+	profiles := map[string]*task.RunnerProfileConfig{
+		"gemini": {Type: "gemini"},
+		"pickle": {Type: "opencode", DataCollection: true},
+	}
+	privateRepos := map[string]struct{}{"ppiankov/secret": {}}
+
+	// public repo — no filtering
+	cascade := []string{"gemini", "pickle"}
+	result := filterDataCollectionRunners(cascade, "ppiankov/entropia", profiles, privateRepos)
+	if len(result) != 2 {
+		t.Fatalf("public repo should keep all runners, got %d", len(result))
+	}
+}
+
+func TestFilterDataCollection_PrivateRepo(t *testing.T) {
+	profiles := map[string]*task.RunnerProfileConfig{
+		"gemini": {Type: "gemini"},
+		"pickle": {Type: "opencode", DataCollection: true},
+		"claude": {Type: "claude"},
+	}
+	privateRepos := map[string]struct{}{"ppiankov/secret": {}}
+
+	cascade := []string{"gemini", "pickle", "claude"}
+	result := filterDataCollectionRunners(cascade, "ppiankov/secret", profiles, privateRepos)
+
+	if len(result) != 2 {
+		t.Fatalf("expected 2 runners after filtering, got %d", len(result))
+	}
+	if result[0] != "gemini" || result[1] != "claude" {
+		t.Fatalf("expected [gemini claude], got %v", result)
+	}
+}
+
+func TestFilterDataCollection_NoPrivateRepos(t *testing.T) {
+	profiles := map[string]*task.RunnerProfileConfig{
+		"pickle": {Type: "opencode", DataCollection: true},
+	}
+
+	cascade := []string{"pickle"}
+	result := filterDataCollectionRunners(cascade, "ppiankov/entropia", profiles, nil)
+	if len(result) != 1 {
+		t.Fatalf("no private repos configured — should keep all, got %d", len(result))
+	}
+}
+
+func TestFilterDataCollection_AllFiltered(t *testing.T) {
+	profiles := map[string]*task.RunnerProfileConfig{
+		"pickle":  {Type: "opencode", DataCollection: true},
+		"minimax": {Type: "opencode", DataCollection: true},
+	}
+	privateRepos := map[string]struct{}{"ppiankov/secret": {}}
+
+	cascade := []string{"pickle", "minimax"}
+	result := filterDataCollectionRunners(cascade, "ppiankov/secret", profiles, privateRepos)
+
+	if len(result) != 0 {
+		t.Fatalf("all data-collecting runners should be filtered for private repo, got %d", len(result))
+	}
+}
+
+func TestFilterDataCollection_UnknownRunnerKept(t *testing.T) {
+	// runners not in profiles (built-in defaults) should NOT be filtered
+	profiles := map[string]*task.RunnerProfileConfig{
+		"pickle": {Type: "opencode", DataCollection: true},
+	}
+	privateRepos := map[string]struct{}{"ppiankov/secret": {}}
+
+	cascade := []string{"codex", "pickle"}
+	result := filterDataCollectionRunners(cascade, "ppiankov/secret", profiles, privateRepos)
+
+	if len(result) != 1 || result[0] != "codex" {
+		t.Fatalf("expected [codex], got %v", result)
+	}
+}
+
 func TestBuildRunnerRegistry_BuiltinsOnly(t *testing.T) {
 	tf := &task.TaskFile{}
 	reg, err := buildRunnerRegistry(tf, 0)

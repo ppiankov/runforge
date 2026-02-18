@@ -12,6 +12,7 @@ import (
 	"strings"
 	"time"
 
+	tea "github.com/charmbracelet/bubbletea"
 	"github.com/spf13/cobra"
 
 	"github.com/ppiankov/runforge/internal/config"
@@ -32,6 +33,7 @@ func newRunCmd() *cobra.Command {
 		maxRuntime  time.Duration
 		idleTimeout time.Duration
 		failFast    bool
+		tuiMode     string
 	)
 
 	cmd := &cobra.Command{
@@ -60,11 +62,11 @@ func newRunCmd() *cobra.Command {
 			if !cmd.Flags().Changed("verify") && cfg.Verify {
 				verify = cfg.Verify
 			}
-			return runTasks(tasksFile, workers, verify, reposDir, filter, dryRun, maxRuntime, idleTimeout, failFast, cfg)
+			return runTasks(tasksFile, workers, verify, reposDir, filter, dryRun, maxRuntime, idleTimeout, failFast, tuiMode, cfg)
 		},
 	}
 
-	cmd.Flags().StringVar(&tasksFile, "tasks", "runforge.json", "path to tasks JSON file")
+	cmd.Flags().StringVar(&tasksFile, "tasks", "runforge.json", "path to tasks JSON file (supports glob patterns)")
 	cmd.Flags().IntVar(&workers, "workers", 4, "max parallel runner processes")
 	cmd.Flags().BoolVar(&verify, "verify", false, "run make test && make lint per repo after completion")
 	cmd.Flags().StringVar(&reposDir, "repos-dir", ".", "base directory containing repos")
@@ -73,19 +75,38 @@ func newRunCmd() *cobra.Command {
 	cmd.Flags().DurationVar(&maxRuntime, "max-runtime", 30*time.Minute, "per-task timeout duration")
 	cmd.Flags().DurationVar(&idleTimeout, "idle-timeout", 5*time.Minute, "kill task after no stdout for this duration")
 	cmd.Flags().BoolVar(&failFast, "fail-fast", false, "stop spawning new tasks on first failure")
+	cmd.Flags().StringVar(&tuiMode, "tui", "auto", "display mode: full (interactive TUI), minimal (live status), off (no live display), auto (detect TTY)")
 
 	return cmd
 }
 
-func runTasks(tasksFile string, workers int, verify bool, reposDir, filter string, dryRun bool, maxRuntime, idleTimeout time.Duration, failFast bool, cfg *config.Settings) error {
-	// load tasks
-	tf, err := config.Load(tasksFile)
+func runTasks(tasksFile string, workers int, verify bool, reposDir, filter string, dryRun bool, maxRuntime, idleTimeout time.Duration, failFast bool, tuiMode string, cfg *config.Settings) error {
+	// resolve glob pattern to concrete file paths
+	paths, err := config.ResolveGlob(tasksFile)
+	if err != nil {
+		return fmt.Errorf("resolve tasks: %w", err)
+	}
+
+	// load all task files
+	taskFiles, err := config.LoadMulti(paths)
 	if err != nil {
 		return fmt.Errorf("load tasks: %w", err)
 	}
 
-	// merge settings into task file (settings provide defaults, task file overrides)
-	mergeSettings(tf, cfg)
+	// merge settings into each file individually (per-file defaults)
+	for _, f := range taskFiles {
+		mergeSettings(f, cfg)
+	}
+
+	// merge all files into one
+	tf, err := config.MergeTaskFiles(taskFiles)
+	if err != nil {
+		return fmt.Errorf("merge tasks: %w", err)
+	}
+
+	if len(paths) > 1 {
+		slog.Info("loaded multiple task files", "files", len(paths), "total_tasks", len(tf.Tasks))
+	}
 
 	// apply filter
 	tasks := tf.Tasks
@@ -135,7 +156,7 @@ func runTasks(tasksFile string, workers int, verify bool, reposDir, filter strin
 	}
 
 	report, err := executeRun(execRunConfig{
-		tasksFile:   tasksFile,
+		tasksFiles:  paths,
 		taskFile:    tf,
 		tasks:       tasks,
 		graph:       graph,
@@ -147,6 +168,7 @@ func runTasks(tasksFile string, workers int, verify bool, reposDir, filter strin
 		failFast:    failFast,
 		postRun:     cfg.PostRun,
 		settings:    cfg,
+		tuiMode:     tuiMode,
 	})
 	if err != nil {
 		return err
@@ -173,8 +195,8 @@ func runTasks(tasksFile string, workers int, verify bool, reposDir, filter strin
 
 // execRunConfig holds parameters for executeRun.
 type execRunConfig struct {
-	tasksFile   string
-	taskFile    *task.TaskFile // full parsed file with profiles
+	tasksFiles  []string
+	taskFile    *task.TaskFile // full parsed/merged file with profiles
 	tasks       []task.Task
 	graph       *task.Graph
 	workers     int
@@ -185,6 +207,7 @@ type execRunConfig struct {
 	failFast    bool
 	postRun     string           // shell command to run after report is written
 	settings    *config.Settings // runtime settings for limiter etc.
+	tuiMode     string           // full, minimal, off, auto
 }
 
 // execRunResult wraps the report and run directory.
@@ -286,6 +309,14 @@ func executeRun(cfg execRunConfig) (*execRunResult, error) {
 		reviewPool.Start(ctx, reviewWorkers)
 	}
 
+	// build private repos set from settings
+	privateRepos := make(map[string]struct{})
+	if cfg.settings != nil {
+		for _, r := range cfg.settings.PrivateRepos {
+			privateRepos[r] = struct{}{}
+		}
+	}
+
 	execFn := func(ctx context.Context, t *task.Task, repoDir, outputDir string) *task.TaskResult {
 		if err := runner.WaitAndAcquire(ctx, repoDir, t.ID); err != nil {
 			return &task.TaskResult{
@@ -301,6 +332,7 @@ func executeRun(cfg execRunConfig) (*execRunResult, error) {
 		writeTaskMeta(outputDir, t)
 
 		cascade := resolveRunnerCascade(t, defaultRunner, tf.DefaultFallbacks)
+		cascade = filterDataCollectionRunners(cascade, t.Repo, tf.Runners, privateRepos)
 		return RunWithCascade(ctx, t, repoDir, outputDir, runners, cascade, cfg.maxRuntime, blacklist, limiter)
 	}
 
@@ -330,17 +362,42 @@ func executeRun(cfg execRunConfig) (*execRunResult, error) {
 		},
 	})
 
-	// start live display if TTY
+	// resolve display mode: full TUI, minimal live reporter, or off
+	displayMode := cfg.tuiMode
+	if displayMode == "" || displayMode == "auto" {
+		if isTTY {
+			displayMode = "full"
+		} else {
+			displayMode = "off"
+		}
+	}
+
 	var live *reporter.LiveReporter
-	if isTTY {
-		live = reporter.NewLiveReporter(os.Stdout, true, cfg.graph, sched.Results)
+	var tuiProgram *tea.Program
+	switch displayMode {
+	case "full":
+		tuiModel := reporter.NewTUIModel(cfg.graph, sched.Results, cancel)
+		tuiProgram = tea.NewProgram(tuiModel, tea.WithAltScreen())
+		go func() {
+			if _, err := tuiProgram.Run(); err != nil {
+				slog.Warn("TUI error", "error", err)
+			}
+		}()
+	case "minimal":
+		live = reporter.NewLiveReporter(os.Stdout, isTTY, cfg.graph, sched.Results)
 		live.Start()
+	default:
+		// "off" or unrecognized — no live display
 	}
 
 	results := sched.Run(ctx)
 	totalDuration := time.Since(start)
 	removeStatusFile()
 
+	if tuiProgram != nil {
+		tuiProgram.Quit()
+		time.Sleep(100 * time.Millisecond)
+	}
 	if live != nil {
 		live.Stop()
 	}
@@ -351,7 +408,7 @@ func executeRun(cfg execRunConfig) (*execRunResult, error) {
 		reviewPool.ApplyResults(results)
 	}
 
-	report := buildReport(cfg.tasksFile, cfg.workers, cfg.filter, cfg.reposDir, results, totalDuration)
+	report := buildReport(cfg.tasksFiles, cfg.workers, cfg.filter, cfg.reposDir, results, totalDuration)
 	textRep.PrintStatus(cfg.graph, results)
 	textRep.PrintSummary(report)
 
@@ -397,10 +454,10 @@ func (e *RateLimitError) Error() string {
 	return fmt.Sprintf("%d tasks rate-limited", e.Count)
 }
 
-func buildReport(tasksFile string, workers int, filter, reposDir string, results map[string]*task.TaskResult, duration time.Duration) *task.RunReport {
+func buildReport(tasksFiles []string, workers int, filter, reposDir string, results map[string]*task.TaskResult, duration time.Duration) *task.RunReport {
 	report := &task.RunReport{
 		Timestamp:     time.Now(),
-		TasksFile:     tasksFile,
+		TasksFiles:    tasksFiles,
 		Workers:       workers,
 		Filter:        filter,
 		ReposDir:      reposDir,
@@ -492,10 +549,11 @@ func mergeSettings(tf *task.TaskFile, cfg *config.Settings) {
 		for name, rp := range cfg.Runners {
 			if _, exists := tf.Runners[name]; !exists {
 				tf.Runners[name] = &task.RunnerProfileConfig{
-					Type:    rp.Type,
-					Model:   rp.Model,
-					Profile: rp.Profile,
-					Env:     rp.Env,
+					Type:           rp.Type,
+					Model:          rp.Model,
+					Profile:        rp.Profile,
+					Env:            rp.Env,
+					DataCollection: rp.DataCollection,
 				}
 			}
 		}
