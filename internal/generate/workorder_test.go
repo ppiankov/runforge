@@ -200,6 +200,35 @@ func TestParseWorkOrders_ChainwatchDoneFmt(t *testing.T) {
 	}
 }
 
+func TestParseWorkOrders_DoneBracketInHeading(t *testing.T) {
+	// Logtap-style [DONE] marker in heading should be detected.
+	input := `### WO-01: HTTP receiver with Loki push API [DONE]
+
+**Goal:** Accept log streams via POST /loki/api/v1/push.
+
+---
+
+### WO-65: Add TLS support to forwarder push path
+
+**Goal:** Enable https:// in push.go.
+`
+
+	wos := ParseWorkOrders(input)
+	if len(wos) != 2 {
+		t.Fatalf("expected 2 WOs, got %d", len(wos))
+	}
+
+	if wos[0].Status != StatusDone {
+		t.Errorf("WO-01 status = %d, want StatusDone ([DONE] in heading)", wos[0].Status)
+	}
+	if wos[0].Title != "HTTP receiver with Loki push API" {
+		t.Errorf("WO-01 title = %q, want title without [DONE] suffix", wos[0].Title)
+	}
+	if wos[1].Status != StatusPlanned {
+		t.Errorf("WO-65 status = %d, want StatusPlanned", wos[1].Status)
+	}
+}
+
 func TestParseWorkOrders_StatusExplicitDone(t *testing.T) {
 	input := "## WO-V01: Test coverage\n\n**Status:** `[x]` COMPLETE — abc123\n\n**Goal:** Add tests.\n"
 

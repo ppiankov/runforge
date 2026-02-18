@@ -29,8 +29,8 @@ type WorkOrder struct {
 
 // Compiled regex patterns.
 var (
-	// Matches: ## WO-01: Title  or  ### WO-C01: Title  or  ## WO-CW01: Title ✅
-	reWOHeading = regexp.MustCompile(`^#{2,3}\s+WO-([A-Za-z0-9.-]+):\s+(.+?)(?:\s*✅)?\s*$`)
+	// Matches: ## WO-01: Title  or  ### WO-C01: Title  or  ## WO-CW01: Title ✅  or  ## WO-01: Title [DONE]
+	reWOHeading = regexp.MustCompile(`^#{2,3}\s+WO-([A-Za-z0-9.-]+):\s+(.+?)(?:\s*(?:✅|\[DONE\]))?\s*$`)
 
 	// Matches: **Status:** `[ ]` planned  or  `[x]` done  etc.
 	reStatus = regexp.MustCompile("\\*\\*Status:\\*\\*\\s*`\\[(.)]`")
@@ -106,8 +106,8 @@ func ParseWorkOrders(content string) []WorkOrder {
 				Title:    strings.TrimSpace(m[2]),
 				Priority: 2, // default medium
 			}
-			// ✅ in heading means done
-			if strings.Contains(line, "✅") {
+			// ✅ or [DONE] in heading means done
+			if strings.Contains(line, "✅") || strings.Contains(line, "[DONE]") {
 				current.Status = StatusDone
 			}
 			state = stateInWO
