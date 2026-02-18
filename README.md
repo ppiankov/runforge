@@ -3,7 +3,7 @@
 
 # runforge
 
-Dependency-aware parallel task runner for AI coding agents with multi-provider fallback and cost tracking.
+Dependency-aware parallel task runner and portfolio auditor for AI coding agents with multi-provider fallback and cost tracking.
 
 ## Why This Exists
 
@@ -19,10 +19,13 @@ Runforge eliminates all three: define tasks once in JSON, execute in parallel ac
 
 - Reads a JSON task file with dependency declarations
 - Builds a DAG and executes tasks in topological order with configurable parallelism
+- **Portfolio scanner** — 26 checks across 6 categories audit repos for structural, security, and quality issues
+- **Scan-to-task pipeline** — `scan --format tasks` generates agent-ready task files with detailed prompts
 - **Runner fallback cascade** — if codex rate-limits, falls to z.ai, then claude
 - **Multi-provider execution** — assign tasks to different LLM providers for parallel utilization
+- **Multi-file glob** — `--tasks 'pattern*.json'` loads and merges multiple task files
 - **Repo-level locking** — prevents two agents from modifying the same repo simultaneously
-- **Live TUI** — real-time task status with runner tags (`[codex]`, `[zai]`, `[via zai]`)
+- **Live TUI** — real-time task status with `--tui full|minimal|off|auto`
 - **Post-run hooks** — auto-import results to forgeaware for cost tracking
 - **Per-task metadata** — each output dir contains `task.json` making runs self-contained
 - Produces JSON reports for post-run analysis and rerun of failures
@@ -89,28 +92,34 @@ runforge run --tasks runforge-tasks.json --repos-dir ~/dev/repos --config .runfo
 ## Workflow
 
 ```
-┌─────────────┐     ┌─────────────┐     ┌─────────────┐     ┌─────────────┐
-│   generate   │────▶│    audit     │────▶│     run      │────▶│   review    │
-│              │     │              │     │              │     │              │
-│ scan repos   │     │ remove done  │     │ DAG schedule │     │ status report│
-│ parse WOs    │     │ narrow partial│    │ runner cascade│    │ forgeaware   │
-│ inject config│     │ validate     │     │ live TUI     │     │ rerun failed │
-└─────────────┘     └─────────────┘     └─────────────┘     └─────────────┘
+┌─────────────┐     ┌─────────────┐     ┌─────────────┐     ┌─────────────┐     ┌─────────────┐
+│     scan     │────▶│   generate   │────▶│    audit     │────▶│     run      │────▶│   review    │
+│              │     │              │     │              │     │              │     │              │
+│ 26 checks    │     │ parse WOs    │     │ remove done  │     │ DAG schedule │     │ status report│
+│ 6 categories │     │ inject config│     │ narrow partial│    │ runner cascade│    │ forgeaware   │
+│ task output  │     │ merge files  │     │ validate     │     │ live TUI     │     │ rerun failed │
+└─────────────┘     └─────────────┘     └─────────────┘     └─────────────┘     └─────────────┘
 ```
 
-**Step 1: Generate** — scan repos for `docs/work-orders.md`, extract pending WOs, inject runner profiles from `.runforge.yml`.
+**Step 1: Scan** — audit all repos for structural, security, and quality issues. Optionally generate task files for autonomous fixing.
+
+```bash
+runforge scan --repos-dir ~/dev/repos --format tasks --output scan-tasks.json
+```
+
+**Step 2: Generate** — scan repos for `docs/work-orders.md`, extract pending WOs, inject runner profiles from `.runforge.yml`.
 
 ```bash
 runforge generate --repos-dir ~/dev/repos --config .runforge.yml
 ```
 
-**Step 2: Run** — execute tasks in parallel with dependency ordering and live TUI.
+**Step 3: Run** — execute tasks in parallel with dependency ordering and live TUI. Supports glob patterns for multi-file loading.
 
 ```bash
-runforge run --tasks runforge-tasks.json --repos-dir ~/dev/repos --config .runforge.yml --workers 6
+runforge run --tasks 'runforge-*.json' --repos-dir ~/dev/repos --config .runforge.yml --workers 6
 ```
 
-**Step 3: Review** — inspect results, verify repos, rerun failures.
+**Step 4: Review** — inspect results, verify repos, rerun failures.
 
 ```bash
 runforge status --run-dir .runforge/<latest>
@@ -122,16 +131,19 @@ runforge rerun --run-dir .runforge/<latest>    # failed/skipped only
 When a runner fails or is rate-limited, runforge automatically tries the next provider in the cascade:
 
 ```
-codex (primary) ──fail──▶ zai (fallback 1) ──fail──▶ claude (fallback 2)
+gemini (primary) ──fail──▶ codex (fallback 1) ──fail──▶ claude (fallback 2)
 ```
+
+Five built-in runner types: `codex`, `claude`, `gemini`, `opencode`, `script`.
 
 Configure per-task or globally:
 
 ```json
 {
-  "default_runner": "codex",
-  "default_fallbacks": ["zai", "claude"],
+  "default_runner": "gemini",
+  "default_fallbacks": ["codex", "claude"],
   "runners": {
+    "gemini": { "type": "gemini" },
     "codex": { "type": "codex" },
     "zai": {
       "type": "codex",
@@ -175,7 +187,7 @@ This creates an accountability pipeline: every AI agent task is tracked — whic
 
 | Flag | Default | Description |
 |------|---------|-------------|
-| `--tasks FILE` | `runforge.json` | Path to tasks JSON file |
+| `--tasks FILE` | `runforge.json` | Path to tasks JSON file (supports glob patterns like `'runforge-*.json'`) |
 | `--workers N` | `4` | Max parallel runner processes |
 | `--repos-dir DIR` | `.` | Base directory containing repos |
 | `--config FILE` | `.runforge.yml` | Settings file (workers, runners, post_run) |
@@ -183,7 +195,37 @@ This creates an accountability pipeline: every AI agent task is tracked — whic
 | `--dry-run` | `false` | Show execution plan without running |
 | `--verify` | `false` | Run `make test && make lint` per repo after completion |
 | `--max-runtime DUR` | `30m` | Per-task timeout duration |
+| `--idle-timeout DUR` | `5m` | Kill task after no stdout for this duration |
 | `--fail-fast` | `false` | Stop spawning new tasks on first failure |
+| `--tui MODE` | `auto` | Display mode: `full` (interactive TUI), `minimal` (live status), `off` (no live display), `auto` (detect TTY) |
+
+### `runforge scan`
+
+Audit all repos for structural, security, and quality issues. Runs 26 filesystem-based checks across 6 categories: structure, go, python, security, ci, quality.
+
+| Flag | Default | Description |
+|------|---------|-------------|
+| `--repos-dir DIR` | `.` | Base directory containing repos |
+| `--format FMT` | `text` | Output format: `text` (human-readable), `json` (machine), `tasks` (runforge task file) |
+| `--filter-repo NAME` | | Scan only this repo |
+| `--severity LEVEL` | | Minimum severity: `critical`, `warning`, `info` |
+| `--check CATEGORIES` | | Check categories to run (comma-separated: structure,go,python,security,ci,quality) |
+| `--owner ORG` | (inferred) | GitHub owner for task format output |
+| `--runner NAME` | `codex` | Default runner for task format output |
+| `--output FILE` | (stdout) | Write output to file instead of stdout |
+
+The `tasks` format generates agent-ready prompts with file paths, code patterns, verification commands, and constraints — designed to be immediately runnable via `runforge run` without editing.
+
+```bash
+# text summary
+runforge scan --repos-dir ~/dev/repos
+
+# generate task file for autonomous fixing
+runforge scan --repos-dir ~/dev/repos --format tasks --output scan-tasks.json
+
+# then run the fixes in parallel
+runforge run --tasks scan-tasks.json --repos-dir ~/dev/repos --workers 6
+```
 
 ### `runforge generate`
 
@@ -267,10 +309,12 @@ internal/
   cli/
     run.go                  -- run command: DAG scheduling, lock, TUI, post-run hook
     generate.go             -- generate command: scan repos, inject runner profiles
+    scan.go                 -- scan command: portfolio auditor
     rerun.go                -- rerun command: retry failed tasks with preserved config
     root.go                 -- Cobra root, version vars, global flags
   config/
     settings.go             -- .runforge.yml loading, runner profile config
+    loader.go               -- task file loading, glob resolution, multi-file merge
   task/
     model.go                -- Task, TaskFile, TaskResult, RunReport, RunnerProfileConfig
     graph.go                -- Dependency DAG, topological sort (Kahn's algorithm)
@@ -278,11 +322,21 @@ internal/
   runner/
     runner.go               -- Runner interface and registry
     codex.go                -- Codex exec backend (JSONL parsing, env resolution)
+    claude.go               -- Claude Code CLI backend (stream-json parsing)
+    gemini.go               -- Gemini CLI backend (stream-json parsing, yolo mode)
+    opencode.go             -- OpenCode CLI backend (JSON output parsing, multi-provider)
     lock.go                 -- Per-repo file locking with wait-and-retry
     blacklist.go            -- Global runner blacklist with TTL for rate-limited providers
     profile.go              -- Runner profile resolution (env: prefix → os.Getenv)
+  scan/
+    scanner.go              -- Scan() entry point: walk repos, run checks, sort findings
+    checker.go              -- Checker interface, AllCheckers() registry (26 checks)
+    checks.go               -- Check implementations + promptBuilder for autonomous prompts
+    finding.go              -- Finding, Severity, TaskPrompt() (prompt vs suggestion)
+    repo.go                 -- RepoInfo, DetectRepo(), language detection
+    format.go               -- TextFormatter, JSONFormatter, TaskFormatter
   reporter/
-    live.go                 -- Live TUI with runner tags and fallback indicators
+    live.go                 -- Live TUI (Bubbletea) with runner tags and fallback indicators
     text.go                 -- Text reporter with cascade attempt display
     json.go                 -- JSON report writer
 ```
@@ -296,11 +350,16 @@ internal/
 
 ## Roadmap
 
+- [x] Portfolio scanner with 26 checks across 6 categories
+- [x] Scan-to-task pipeline with autonomous agent prompts
+- [x] Multi-file glob support for task loading
+- [x] TUI mode selection (full/minimal/off/auto)
 - [ ] Per-task git branches — enable true same-repo parallelism
 - [ ] SARIF report output
 - [ ] Script runner backend (arbitrary commands)
 - [ ] Rate limit detection — stop on first 429, show reset countdown
 - [ ] Claude runner backend (direct API)
+- [ ] Qwen Code runner backend
 
 ## License
 
