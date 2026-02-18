@@ -24,17 +24,29 @@ type Settings struct {
 	DefaultFallbacks []string                  `yaml:"default_fallbacks"`
 	Runners          map[string]*RunnerProfile `yaml:"runners"`
 
+	// Repos where code must not be sent to data-collecting providers
+	PrivateRepos []string `yaml:"private_repos,omitempty"`
+
 	// Responses API → Chat Completions translation proxy
 	Proxy *ProxyConfig `yaml:"proxy,omitempty"`
+
+	// Scan configuration
+	Scan *ScanConfig `yaml:"scan,omitempty"`
+}
+
+// ScanConfig holds settings for the scan command.
+type ScanConfig struct {
+	ExcludeRepos []string `yaml:"exclude_repos,omitempty"`
 }
 
 // RunnerProfile mirrors task.RunnerProfileConfig for YAML config.
 type RunnerProfile struct {
-	Type          string            `yaml:"type"`
-	Model         string            `yaml:"model,omitempty"`
-	Profile       string            `yaml:"profile,omitempty"`
-	Env           map[string]string `yaml:"env,omitempty"`
-	MaxConcurrent int               `yaml:"max_concurrent,omitempty"`
+	Type           string            `yaml:"type"`
+	Model          string            `yaml:"model,omitempty"`
+	Profile        string            `yaml:"profile,omitempty"`
+	Env            map[string]string `yaml:"env,omitempty"`
+	MaxConcurrent  int               `yaml:"max_concurrent,omitempty"`
+	DataCollection bool              `yaml:"data_collection,omitempty"` // true = provider may use data for training
 }
 
 // ProxyConfig controls the built-in Responses API → Chat Completions proxy.
