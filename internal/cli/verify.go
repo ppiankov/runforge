@@ -50,10 +50,14 @@ func verifyRun(runDir, reposDir string) error {
 	repos := make(map[string]struct{})
 	// repos are collected below via task file lookup
 
-	// re-read tasks file to get repo mapping
-	tf, err := config.Load(report.TasksFile)
+	// re-read tasks file(s) to get repo mapping
+	taskFiles, err := config.LoadMulti(report.TasksFiles)
 	if err != nil {
-		return fmt.Errorf("load tasks file: %w", err)
+		return fmt.Errorf("load tasks files: %w", err)
+	}
+	tf, err := config.MergeTaskFiles(taskFiles)
+	if err != nil {
+		return fmt.Errorf("merge tasks files: %w", err)
 	}
 
 	for _, t := range tf.Tasks {
