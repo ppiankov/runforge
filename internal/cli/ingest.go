@@ -99,44 +99,22 @@ func runIngest(payloadPath, runnerName string, fallbacks []string, repoDir, prof
 		return nil
 	}
 
-	// 4. Create task.
-	t := &task.Task{
-		ID:     payload.WOID,
-		Title:  fmt.Sprintf("WO %s: %s", payload.WOID, payload.IncidentID),
-		Prompt: prompt,
-		Runner: runnerName,
-	}
-
-	// 5. Build runner cascade.
-	cascade := []string{runnerName}
-	for _, fb := range fallbacks {
-		if fb != runnerName {
-			cascade = append(cascade, fb)
-		}
-	}
-
-	// Build runner registry with the profile name set for codex runners.
-	runners := map[string]runner.Runner{
-		"codex":    runner.NewCodexRunnerWithProfile("", profile.Name, nil, idleTimeout),
-		"claude":   runner.NewClaudeRunner(idleTimeout),
-		"gemini":   runner.NewGeminiRunner(idleTimeout),
-		"opencode": runner.NewOpencodeRunner(idleTimeout),
-		"script":   runner.NewScriptRunner(),
-	}
-
-	blacklist := runner.NewRunnerBlacklist()
-	outputDir := filepath.Join(repoDir, ".runforge", "ingest", payload.WOID)
-	if err := os.MkdirAll(outputDir, 0755); err != nil {
-		return fmt.Errorf("create output dir: %w", err)
-	}
-
-	// 6. Execute with cascade.
+	// 4. Execute via shared logic.
 	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer cancel()
 
-	result := RunWithCascade(ctx, t, repoDir, outputDir, runners, cascade, maxRuntime, blacklist, nil)
+	cfg := IngestConfig{
+		Runner:      runnerName,
+		Fallbacks:   fallbacks,
+		RepoDir:     repoDir,
+		MaxRuntime:  maxRuntime,
+		IdleTimeout: idleTimeout,
+	}
 
-	// 7. Report result.
+	result := ExecuteIngest(ctx, payload, profile.Name, cfg)
+
+	// 5. Report result.
+	outputDir := filepath.Join(repoDir, ".runforge", "ingest", payload.WOID)
 	fmt.Printf("\n=== Result ===\n")
 	fmt.Printf("WO:     %s\n", payload.WOID)
 	fmt.Printf("State:  %s\n", result.State)
@@ -154,4 +132,54 @@ func runIngest(payloadPath, runnerName string, fallbacks []string, repoDir, prof
 	}
 
 	return nil
+}
+
+// IngestConfig holds parameters for ExecuteIngest.
+type IngestConfig struct {
+	Runner      string
+	Fallbacks   []string
+	RepoDir     string
+	MaxRuntime  time.Duration
+	IdleTimeout time.Duration
+}
+
+// ExecuteIngest runs an approved WO payload through the runner cascade.
+// This is the shared logic used by both the CLI and the sentinel daemon.
+func ExecuteIngest(ctx context.Context, payload *ingest.IngestPayload, profileName string, cfg IngestConfig) *task.TaskResult {
+	prompt := ingest.BuildPrompt(payload)
+
+	t := &task.Task{
+		ID:     payload.WOID,
+		Title:  fmt.Sprintf("WO %s: %s", payload.WOID, payload.IncidentID),
+		Prompt: prompt,
+		Runner: cfg.Runner,
+	}
+
+	cascade := []string{cfg.Runner}
+	for _, fb := range cfg.Fallbacks {
+		if fb != cfg.Runner {
+			cascade = append(cascade, fb)
+		}
+	}
+
+	runners := map[string]runner.Runner{
+		"codex":    runner.NewCodexRunnerWithProfile("", profileName, nil, cfg.IdleTimeout),
+		"claude":   runner.NewClaudeRunner(cfg.IdleTimeout),
+		"gemini":   runner.NewGeminiRunner(cfg.IdleTimeout),
+		"opencode": runner.NewOpencodeRunner(cfg.IdleTimeout),
+		"script":   runner.NewScriptRunner(),
+	}
+
+	blacklist := runner.NewRunnerBlacklist()
+	outputDir := filepath.Join(cfg.RepoDir, ".runforge", "ingest", payload.WOID)
+	if err := os.MkdirAll(outputDir, 0755); err != nil {
+		return &task.TaskResult{
+			TaskID:  payload.WOID,
+			State:   task.StateFailed,
+			Error:   fmt.Sprintf("create output dir: %v", err),
+			EndedAt: time.Now(),
+		}
+	}
+
+	return RunWithCascade(ctx, t, cfg.RepoDir, outputDir, runners, cascade, cfg.MaxRuntime, blacklist, nil)
 }
