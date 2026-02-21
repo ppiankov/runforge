@@ -44,7 +44,7 @@ func (r *ScriptRunner) Run(ctx context.Context, t *task.Task, repoDir, outputDir
 	cmd := exec.CommandContext(ctx, "sh", "-c", t.Prompt)
 	cmd.Dir = repoDir
 	if len(r.env) > 0 {
-		cmd.Env = append(os.Environ(), r.env...)
+		cmd.Env = append(SanitizedEnv(), r.env...)
 	}
 	cmd.Stdout = newLogWriter(outputDir, "output.log")
 	cmd.Stderr = newLogWriter(outputDir, "stderr.log")

@@ -84,7 +84,7 @@ func (r *OpencodeRunner) Run(ctx context.Context, t *task.Task, repoDir, outputD
 	cmd := exec.CommandContext(idleCtx, "opencode", args...)
 	cmd.Dir = repoDir
 	if len(r.env) > 0 {
-		cmd.Env = append(os.Environ(), r.env...)
+		cmd.Env = append(SanitizedEnv(), r.env...)
 	}
 	rlw := newRateLimitWriter(newLogWriter(outputDir, "stderr.log"))
 	cmd.Stderr = rlw
