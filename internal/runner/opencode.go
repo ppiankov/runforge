@@ -82,6 +82,7 @@ func (r *OpencodeRunner) Run(ctx context.Context, t *task.Task, repoDir, outputD
 	defer idleCancel()
 
 	cmd := exec.CommandContext(idleCtx, "opencode", args...)
+	setupProcessGroup(cmd)
 	cmd.Dir = repoDir
 	if len(r.env) > 0 {
 		cmd.Env = append(SanitizedEnv(), r.env...)

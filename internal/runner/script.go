@@ -42,6 +42,7 @@ func (r *ScriptRunner) Run(ctx context.Context, t *task.Task, repoDir, outputDir
 	slog.Debug("spawning script", "task", t.ID, "repo", t.Repo, "dir", repoDir)
 
 	cmd := exec.CommandContext(ctx, "sh", "-c", t.Prompt)
+	setupProcessGroup(cmd)
 	cmd.Dir = repoDir
 	if len(r.env) > 0 {
 		cmd.Env = append(SanitizedEnv(), r.env...)

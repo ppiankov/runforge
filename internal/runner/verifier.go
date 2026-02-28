@@ -72,6 +72,7 @@ func Verify(ctx context.Context, repo, repoDir, runDir string) *VerifyResult {
 
 func runMake(ctx context.Context, dir, target string) (string, error) {
 	cmd := exec.CommandContext(ctx, "make", target)
+	setupProcessGroup(cmd)
 	cmd.Dir = dir
 
 	var out bytes.Buffer

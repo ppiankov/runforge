@@ -67,6 +67,7 @@ func (r *GeminiRunner) Run(ctx context.Context, t *task.Task, repoDir, outputDir
 	defer idleCancel()
 
 	cmd := exec.CommandContext(idleCtx, "gemini", args...)
+	setupProcessGroup(cmd)
 	cmd.Dir = repoDir
 	if len(r.env) > 0 {
 		cmd.Env = append(SanitizedEnv(), r.env...)

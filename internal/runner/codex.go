@@ -68,6 +68,7 @@ func (r *CodexRunner) Run(ctx context.Context, t *task.Task, repoDir, outputDir 
 	defer idleCancel()
 
 	cmd := exec.CommandContext(idleCtx, "codex", args...)
+	setupProcessGroup(cmd)
 	cmd.Dir = repoDir
 	if len(r.env) > 0 {
 		cmd.Env = append(SanitizedEnv(), r.env...)
