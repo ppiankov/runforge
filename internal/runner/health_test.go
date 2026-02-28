@@ -2,11 +2,12 @@ package runner
 
 import (
 	"io"
+	"sync/atomic"
 	"testing"
 )
 
 func TestHealthWriter_TLSCertExpired(t *testing.T) {
-	hw := newHealthWriter(io.Discard)
+	hw := newHealthWriter(io.Discard, nil)
 	_, _ = hw.Write([]byte(`error: SSL certificate problem: certificate has expired`))
 
 	if !hw.Detected() {
@@ -18,7 +19,7 @@ func TestHealthWriter_TLSCertExpired(t *testing.T) {
 }
 
 func TestHealthWriter_ConnectionRefused(t *testing.T) {
-	hw := newHealthWriter(io.Discard)
+	hw := newHealthWriter(io.Discard, nil)
 	_, _ = hw.Write([]byte(`dial tcp 10.0.0.1:443: connection refused`))
 
 	if !hw.Detected() {
@@ -30,7 +31,7 @@ func TestHealthWriter_ConnectionRefused(t *testing.T) {
 }
 
 func TestHealthWriter_DNSFailure(t *testing.T) {
-	hw := newHealthWriter(io.Discard)
+	hw := newHealthWriter(io.Discard, nil)
 	_, _ = hw.Write([]byte(`DNS resolution failed for api.example.com`))
 
 	if !hw.Detected() {
@@ -42,7 +43,7 @@ func TestHealthWriter_DNSFailure(t *testing.T) {
 }
 
 func TestHealthWriter_CouldNotResolveHost(t *testing.T) {
-	hw := newHealthWriter(io.Discard)
+	hw := newHealthWriter(io.Discard, nil)
 	_, _ = hw.Write([]byte(`curl: (6) Could not resolve host: api.zhipu.ai`))
 
 	if !hw.Detected() {
@@ -54,7 +55,7 @@ func TestHealthWriter_CouldNotResolveHost(t *testing.T) {
 }
 
 func TestHealthWriter_RequestFailed(t *testing.T) {
-	hw := newHealthWriter(io.Discard)
+	hw := newHealthWriter(io.Discard, nil)
 	_, _ = hw.Write([]byte(`error sending request for url (https://api.example.com)`))
 
 	if !hw.Detected() {
@@ -66,7 +67,7 @@ func TestHealthWriter_RequestFailed(t *testing.T) {
 }
 
 func TestHealthWriter_TLSHandshakeTimeout(t *testing.T) {
-	hw := newHealthWriter(io.Discard)
+	hw := newHealthWriter(io.Discard, nil)
 	_, _ = hw.Write([]byte(`net/http: TLS handshake timeout`))
 
 	if !hw.Detected() {
@@ -78,7 +79,7 @@ func TestHealthWriter_TLSHandshakeTimeout(t *testing.T) {
 }
 
 func TestHealthWriter_NoMatch(t *testing.T) {
-	hw := newHealthWriter(io.Discard)
+	hw := newHealthWriter(io.Discard, nil)
 	_, _ = hw.Write([]byte(`normal stderr output from codex`))
 
 	if hw.Detected() {
@@ -87,7 +88,7 @@ func TestHealthWriter_NoMatch(t *testing.T) {
 }
 
 func TestHealthWriter_CaseInsensitive(t *testing.T) {
-	hw := newHealthWriter(io.Discard)
+	hw := newHealthWriter(io.Discard, nil)
 	_, _ = hw.Write([]byte(`ERROR: CONNECTION REFUSED on port 443`))
 
 	if !hw.Detected() {
@@ -101,7 +102,7 @@ func TestHealthWriter_CaseInsensitive(t *testing.T) {
 func TestHealthWriter_PassesThrough(t *testing.T) {
 	var buf []byte
 	w := &testWriter{buf: &buf}
-	hw := newHealthWriter(w)
+	hw := newHealthWriter(w, nil)
 
 	data := []byte("test data")
 	n, err := hw.Write(data)
@@ -114,6 +115,29 @@ func TestHealthWriter_PassesThrough(t *testing.T) {
 	}
 	if string(*w.buf) != "test data" {
 		t.Errorf("expected passthrough, got %q", string(*w.buf))
+	}
+}
+
+func TestHealthWriter_CancelCallbackFires(t *testing.T) {
+	var cancelled atomic.Bool
+	cancel := func() { cancelled.Store(true) }
+
+	hw := newHealthWriter(io.Discard, cancel)
+	_, _ = hw.Write([]byte(`connection refused`))
+
+	if !cancelled.Load() {
+		t.Error("expected cancel to be called on connectivity error")
+	}
+}
+
+func TestHealthWriter_CancelNilNoPanic(t *testing.T) {
+	hw := newHealthWriter(io.Discard, nil)
+
+	// should not panic with nil cancel
+	_, _ = hw.Write([]byte(`connection refused`))
+
+	if !hw.Detected() {
+		t.Error("expected detection even with nil cancel")
 	}
 }
 

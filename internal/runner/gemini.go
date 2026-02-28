@@ -72,8 +72,8 @@ func (r *GeminiRunner) Run(ctx context.Context, t *task.Task, repoDir, outputDir
 	if len(r.env) > 0 {
 		cmd.Env = append(SanitizedEnv(), r.env...)
 	}
-	rlw := newRateLimitWriter(newLogWriter(outputDir, "stderr.log"))
-	hw := newHealthWriter(rlw)
+	rlw := newRateLimitWriter(newLogWriter(outputDir, "stderr.log"), idleCancel)
+	hw := newHealthWriter(rlw, idleCancel)
 	cmd.Stderr = hw
 
 	stdout, err := cmd.StdoutPipe()

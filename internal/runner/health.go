@@ -24,15 +24,20 @@ var connectivityPatterns = []connectivityPattern{
 
 // healthWriter wraps an io.Writer (stderr) and scans for known
 // connectivity error patterns. All data is passed through unchanged.
+// When a connectivity error is detected, it calls the cancel callback
+// to kill the runner process immediately.
 type healthWriter struct {
 	file     io.Writer
+	cancel   func() // called on first detection to kill the process
 	detected bool
 	reason   string
 	mu       sync.Mutex
 }
 
-func newHealthWriter(w io.Writer) *healthWriter {
-	return &healthWriter{file: w}
+// newHealthWriter creates a healthWriter wrapping the given writer.
+// cancel is called on first connectivity error detection (can be nil).
+func newHealthWriter(w io.Writer, cancel func()) *healthWriter {
+	return &healthWriter{file: w, cancel: cancel}
 }
 
 func (hw *healthWriter) Write(p []byte) (int, error) {
@@ -45,6 +50,9 @@ func (hw *healthWriter) Write(p []byte) (int, error) {
 			if strings.Contains(lower, cp.pattern) {
 				hw.detected = true
 				hw.reason = cp.reason
+				if hw.cancel != nil {
+					hw.cancel()
+				}
 				break
 			}
 		}
