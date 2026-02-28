@@ -2,6 +2,8 @@ package cli
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"log/slog"
@@ -465,6 +467,14 @@ func buildReport(tasksFiles []string, workers int, filter, reposDir string, resu
 		TotalTasks:    len(results),
 		TotalDuration: duration,
 	}
+
+	// compute deterministic run ID from timestamp + task file paths
+	h := sha256.New()
+	fmt.Fprintf(h, "%d", report.Timestamp.UnixNano())
+	for _, f := range report.TasksFiles {
+		fmt.Fprintf(h, "|%s", f)
+	}
+	report.RunID = hex.EncodeToString(h.Sum(nil)[:6])
 
 	for _, r := range results {
 		switch r.State {
