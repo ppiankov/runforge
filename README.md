@@ -93,13 +93,13 @@ runforge run --tasks runforge-tasks.json --repos-dir ~/dev/repos --config .runfo
 ## Workflow
 
 ```
-┌─────────────┐     ┌─────────────┐     ┌──────────────┐     ┌──────────────┐     ┌─────────────┐
-│    scan     │────▶│  generate   │────▶│   audit      │────▶│    run       │────▶│  review     │
-│             │     │             │     │              │     │              │     │             │
-│26 checks    │     │parse WOs    │     │remove done   │     │DAG schedule  │     │status report│
-│6 categories │     │inject config│     │narrow partial│     │runner cascade│     │forgeaware   │
-│task output  │     │merge files  │     │validate      │     │live TUI      │     │rerun failed │
-└─────────────┘     └─────────────┘     └──────────────┘     └──────────────┘     └─────────────┘
+┌─────────────┐    ┌─────────────┐     ┌──────────────┐     ┌──────────────┐     ┌─────────────┐
+│    scan     │───▶│  generate   │────▶│   audit      │────▶│    run       │────▶│  review     │
+│             │    │             │     │              │     │              │     │             │
+│26 checks    │    │parse WOs    │     │remove done   │     │DAG schedule  │     │status report│
+│6 categories │    │inject config│     │narrow partial│     │runner cascade│     │forgeaware   │
+│task output  │    │merge files  │     │validate      │     │live TUI      │     │rerun failed │
+└─────────────┘    └─────────────┘     └──────────────┘     └──────────────┘     └─────────────┘
 ```
 
 **Step 1: Scan** — audit all repos for structural, security, and quality issues. Optionally generate task files for autonomous fixing.
