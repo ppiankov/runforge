@@ -209,6 +209,7 @@ func rerunTasks(runDir string, workers int, reposDir string, maxRuntime, idleTim
 		maxRuntime:  maxRuntime,
 		idleTimeout: idleTimeout,
 		failFast:    failFast,
+		parentRunID: prevReport.RunID,
 		postRun:     cfg.PostRun,
 		settings:    cfg,
 		tuiMode:     tuiMode,

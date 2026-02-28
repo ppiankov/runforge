@@ -207,6 +207,7 @@ type execRunConfig struct {
 	maxRuntime  time.Duration
 	idleTimeout time.Duration
 	failFast    bool
+	parentRunID string           // links rerun to original run
 	postRun     string           // shell command to run after report is written
 	settings    *config.Settings // runtime settings for limiter etc.
 	tuiMode     string           // full, minimal, off, auto
@@ -410,7 +411,7 @@ func executeRun(cfg execRunConfig) (*execRunResult, error) {
 		reviewPool.ApplyResults(results)
 	}
 
-	report := buildReport(cfg.tasksFiles, cfg.workers, cfg.filter, cfg.reposDir, results, totalDuration)
+	report := buildReport(cfg.tasksFiles, cfg.workers, cfg.filter, cfg.reposDir, results, totalDuration, cfg.parentRunID)
 	textRep.PrintStatus(cfg.graph, results)
 	textRep.PrintSummary(report)
 
@@ -456,7 +457,7 @@ func (e *RateLimitError) Error() string {
 	return fmt.Sprintf("%d tasks rate-limited", e.Count)
 }
 
-func buildReport(tasksFiles []string, workers int, filter, reposDir string, results map[string]*task.TaskResult, duration time.Duration) *task.RunReport {
+func buildReport(tasksFiles []string, workers int, filter, reposDir string, results map[string]*task.TaskResult, duration time.Duration, parentRunID string) *task.RunReport {
 	report := &task.RunReport{
 		Timestamp:     time.Now(),
 		TasksFiles:    tasksFiles,
@@ -466,6 +467,7 @@ func buildReport(tasksFiles []string, workers int, filter, reposDir string, resu
 		Results:       results,
 		TotalTasks:    len(results),
 		TotalDuration: duration,
+		ParentRunID:   parentRunID,
 	}
 
 	// compute deterministic run ID from timestamp + task file paths

@@ -161,6 +161,7 @@ type ReviewResult struct {
 // RunReport is the final output of a runforge execution.
 type RunReport struct {
 	RunID         string                 `json:"run_id"`
+	ParentRunID   string                 `json:"parent_run_id,omitempty"`
 	Timestamp     time.Time              `json:"timestamp"`
 	TasksFiles    []string               `json:"tasks_files"`
 	Workers       int                    `json:"workers"`
