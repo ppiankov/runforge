@@ -260,8 +260,12 @@ func (lr *LiveReporter) formatCompleted(res *task.TaskResult) string {
 	}
 	dur := res.Duration.Truncate(time.Second)
 	suffix := ""
-	if res.RunnerUsed != "" && len(res.Attempts) > 1 {
-		suffix = " [via " + res.RunnerUsed + "]"
+	if res.RunnerUsed != "" {
+		if len(res.Attempts) > 1 {
+			suffix = " [via " + res.RunnerUsed + "]"
+		} else {
+			suffix = " [" + res.RunnerUsed + "]"
+		}
 	}
 	return fmt.Sprintf("  %s✓ %-10s %-25s %-30s %s%s%s",
 		lr.c(colorGreen), "done", res.TaskID, title, dur, suffix, lr.c(colorReset))
