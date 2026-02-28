@@ -177,6 +177,49 @@ func buildRunnerRegistry(tf *task.TaskFile, idleTimeout time.Duration) (map[stri
 	return runners, nil
 }
 
+// validateAndResolveModels checks runner models against local config files
+// and auto-resolves mismatches. Mutates tf.Runners profiles in-place and
+// rebuilds affected runners in the registry. Returns resolutions for logging.
+func validateAndResolveModels(
+	tf *task.TaskFile,
+	runners map[string]runner.Runner,
+	idleTimeout time.Duration,
+) []runner.ModelResolution {
+	if len(tf.Runners) == 0 {
+		return nil
+	}
+
+	resolutions, _ := runner.ValidateModels(runners, tf.Runners)
+
+	// rebuild runners whose models were resolved
+	for _, res := range resolutions {
+		profile := tf.Runners[res.RunnerProfile]
+		if profile == nil {
+			continue
+		}
+		resolved, err := runner.ResolveEnv(profile.Env)
+		if err != nil {
+			continue
+		}
+		switch profile.Type {
+		case "opencode":
+			runners[res.RunnerProfile] = runner.NewOpencodeRunnerWithProfile(
+				profile.Model, resolved, idleTimeout)
+		case "codex":
+			runners[res.RunnerProfile] = runner.NewCodexRunnerWithProfile(
+				profile.Model, profile.Profile, resolved, idleTimeout)
+		case "claude":
+			runners[res.RunnerProfile] = runner.NewClaudeRunnerWithProfile(
+				profile.Model, resolved, idleTimeout)
+		case "gemini":
+			runners[res.RunnerProfile] = runner.NewGeminiRunnerWithProfile(
+				profile.Model, resolved, idleTimeout)
+		}
+	}
+
+	return resolutions
+}
+
 // buildProviderLimiter creates a ProviderLimiter from concurrency limits.
 // Only entries with limit > 0 are enforced.
 func buildProviderLimiter(limits map[string]int) *runner.ProviderLimiter {

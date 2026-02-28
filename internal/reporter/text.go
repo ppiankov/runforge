@@ -19,6 +19,14 @@ const (
 	colorDim    = "\033[2m"
 )
 
+// ModelResolution describes a model that was auto-resolved during validation.
+// Mirrors runner.ModelResolution to avoid a circular import.
+type ModelResolution struct {
+	RunnerProfile string
+	Original      string
+	Resolved      string
+}
+
 // TextReporter writes human-readable output to a writer.
 type TextReporter struct {
 	w     io.Writer
@@ -169,6 +177,17 @@ func (r *TextReporter) PrintSummary(report *task.RunReport) {
 		if remaining > 0 {
 			fmt.Fprintf(r.w, "  (quota resets in %s)", remaining)
 		}
+	}
+	fmt.Fprintln(r.w)
+}
+
+// PrintModelResolutions writes model auto-resolution information.
+func (r *TextReporter) PrintModelResolutions(resolutions []ModelResolution) {
+	fmt.Fprint(r.w, "Model resolutions:\n")
+	for _, res := range resolutions {
+		fmt.Fprintf(r.w, "  %s[%s]%s %s → %s\n",
+			r.c(colorYellow), res.RunnerProfile, r.c(colorReset),
+			res.Original, res.Resolved)
 	}
 	fmt.Fprintln(r.w)
 }

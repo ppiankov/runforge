@@ -57,6 +57,24 @@ func NewOpencodeRunnerWithProfile(model string, env map[string]string, idleTimeo
 // Name returns the runner identifier.
 func (r *OpencodeRunner) Name() string { return "opencode" }
 
+// ValidateModel implements ModelValidator for OpenCode.
+// It reads the local OpenCode config to check model availability and
+// auto-resolves to the best match if the requested model is not found.
+func (r *OpencodeRunner) ValidateModel(model string) (string, error) {
+	if model == "" {
+		return "", nil
+	}
+	cfg, err := loadOpencodeConfig()
+	if err != nil {
+		return "", fmt.Errorf("load opencode config: %w", err)
+	}
+	if cfg == nil {
+		// no config file — cannot validate, pass through
+		return model, nil
+	}
+	return resolveOpencodeModel(cfg, model)
+}
+
 // Run executes an OpenCode task and returns the result.
 func (r *OpencodeRunner) Run(ctx context.Context, t *task.Task, repoDir, outputDir string) *task.TaskResult {
 	start := time.Now()

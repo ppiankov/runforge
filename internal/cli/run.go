@@ -150,9 +150,29 @@ func runTasks(tasksFile string, workers int, verify bool, reposDir, filter strin
 	isTTY := isTerminal()
 	textRep := reporter.NewTextReporter(os.Stdout, isTTY)
 
+	// pre-validate and auto-resolve runner models
+	var modelResolutions []runner.ModelResolution
+	if len(tf.Runners) > 0 {
+		tmpRunners, buildErr := buildRunnerRegistry(tf, idleTimeout)
+		if buildErr == nil {
+			modelResolutions = validateAndResolveModels(tf, tmpRunners, idleTimeout)
+		}
+	}
+
 	// dry run
 	if dryRun {
 		textRep.PrintHeader(len(tasks), workers)
+		if len(modelResolutions) > 0 {
+			reps := make([]reporter.ModelResolution, len(modelResolutions))
+			for i, r := range modelResolutions {
+				reps[i] = reporter.ModelResolution{
+					RunnerProfile: r.RunnerProfile,
+					Original:      r.Original,
+					Resolved:      r.Resolved,
+				}
+			}
+			textRep.PrintModelResolutions(reps)
+		}
 		textRep.PrintDryRun(graph, reposDir)
 		return nil
 	}
@@ -285,6 +305,9 @@ func executeRun(cfg execRunConfig) (*execRunResult, error) {
 	if err != nil {
 		return nil, fmt.Errorf("build runner registry: %w", err)
 	}
+
+	// pre-validate and auto-resolve runner models
+	validateAndResolveModels(tf, runners, cfg.idleTimeout)
 
 	defaultRunner := tf.DefaultRunner
 	if defaultRunner == "" {

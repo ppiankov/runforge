@@ -18,14 +18,43 @@ func newStatusCmd() *cobra.Command {
 		Use:   "status",
 		Short: "Inspect results of a completed run",
 		RunE: func(cmd *cobra.Command, args []string) error {
+			if runDir == "" {
+				latest, err := findLatestRunDir(".")
+				if err != nil {
+					return fmt.Errorf("no --run-dir specified and %w", err)
+				}
+				runDir = latest
+			}
 			return showStatus(runDir)
 		},
 	}
 
-	cmd.Flags().StringVar(&runDir, "run-dir", "", "path to .runforge/<timestamp> directory (required)")
-	_ = cmd.MarkFlagRequired("run-dir")
+	cmd.Flags().StringVar(&runDir, "run-dir", "", "path to .runforge/<timestamp> directory (auto-detects latest if omitted)")
 
 	return cmd
+}
+
+// findLatestRunDir scans baseDir/.runforge/ for the most recent run
+// directory that contains a report.json.
+func findLatestRunDir(baseDir string) (string, error) {
+	rfDir := fmt.Sprintf("%s/.runforge", baseDir)
+	entries, err := os.ReadDir(rfDir)
+	if err != nil {
+		return "", fmt.Errorf("cannot read .runforge directory: %w", err)
+	}
+
+	// entries are sorted alphabetically; timestamps sort chronologically
+	for i := len(entries) - 1; i >= 0; i-- {
+		e := entries[i]
+		if !e.IsDir() {
+			continue
+		}
+		candidate := fmt.Sprintf("%s/%s", rfDir, e.Name())
+		if _, err := os.Stat(fmt.Sprintf("%s/report.json", candidate)); err == nil {
+			return candidate, nil
+		}
+	}
+	return "", fmt.Errorf("no completed runs found in %s", rfDir)
 }
 
 func showStatus(runDir string) error {
