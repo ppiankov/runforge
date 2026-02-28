@@ -90,11 +90,12 @@ func RunWithCascade(
 		}
 
 		attempts = append(attempts, task.AttemptInfo{
-			Runner:    name,
-			State:     result.State,
-			Duration:  elapsed,
-			Error:     result.Error,
-			OutputDir: attemptDir,
+			Runner:            name,
+			State:             result.State,
+			Duration:          elapsed,
+			Error:             result.Error,
+			OutputDir:         attemptDir,
+			ConnectivityError: result.ConnectivityError,
 		})
 
 		lastResult = result
@@ -116,7 +117,13 @@ func RunWithCascade(
 			continue
 
 		case task.StateFailed:
-			slog.Warn("runner failed, trying next", "task", t.ID, "runner", name, "error", result.Error)
+			if result.ConnectivityError != "" {
+				slog.Warn("runner connectivity error, blacklisting",
+					"task", t.ID, "runner", name, "error", result.ConnectivityError)
+				blacklist.Block(name, time.Now().Add(24*time.Hour))
+			} else {
+				slog.Warn("runner failed, trying next", "task", t.ID, "runner", name, "error", result.Error)
+			}
 			continue
 		}
 	}

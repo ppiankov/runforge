@@ -96,7 +96,11 @@ func (r *TextReporter) PrintStatus(graph *task.Graph, results map[string]*task.T
 		}
 		dur := res.Duration.Truncate(time.Second)
 		via := runnerSuffix(res)
-		return fmt.Sprintf("    %-25s %-35s %s  ✗ %s%s", res.TaskID, title, dur, res.Error, via)
+		errDisplay := res.Error
+		if res.ConnectivityError != "" {
+			errDisplay = res.ConnectivityError
+		}
+		return fmt.Sprintf("    %-25s %-35s %s  ✗ %s%s", res.TaskID, title, dur, errDisplay, via)
 	})
 
 	if len(skipped) > 0 {

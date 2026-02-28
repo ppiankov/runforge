@@ -122,11 +122,12 @@ type ReviewConfig struct {
 
 // AttemptInfo records a single runner attempt within a fallback cascade.
 type AttemptInfo struct {
-	Runner    string        `json:"runner"`
-	State     TaskState     `json:"state"`
-	Duration  time.Duration `json:"duration"`
-	Error     string        `json:"error,omitempty"`
-	OutputDir string        `json:"output_dir,omitempty"`
+	Runner            string        `json:"runner"`
+	State             TaskState     `json:"state"`
+	Duration          time.Duration `json:"duration"`
+	Error             string        `json:"error,omitempty"`
+	OutputDir         string        `json:"output_dir,omitempty"`
+	ConnectivityError string        `json:"connectivity_error,omitempty"`
 }
 
 // TaskResult captures the outcome of executing a single task.
@@ -140,6 +141,8 @@ type TaskResult struct {
 	LastMsg   string        `json:"last_message,omitempty"`
 	Error     string        `json:"error,omitempty"`
 	ResetsAt  time.Time     `json:"resets_at,omitempty"`
+
+	ConnectivityError string `json:"connectivity_error,omitempty"` // TLS/DNS/connection error classification
 
 	RunnerUsed string        `json:"runner_used,omitempty"` // profile that produced the final result
 	Attempts   []AttemptInfo `json:"attempts,omitempty"`    // all cascade attempts

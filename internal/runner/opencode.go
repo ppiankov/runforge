@@ -88,7 +88,8 @@ func (r *OpencodeRunner) Run(ctx context.Context, t *task.Task, repoDir, outputD
 		cmd.Env = append(SanitizedEnv(), r.env...)
 	}
 	rlw := newRateLimitWriter(newLogWriter(outputDir, "stderr.log"))
-	cmd.Stderr = rlw
+	hw := newHealthWriter(rlw)
+	cmd.Stderr = hw
 
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {
@@ -121,6 +122,14 @@ func (r *OpencodeRunner) Run(ctx context.Context, t *task.Task, repoDir, outputD
 	if idleReader.Idled() {
 		result.State = task.StateFailed
 		result.Error = fmt.Sprintf("idle timeout: no output for %s", r.idleTimeout)
+		return result
+	}
+
+	// connectivity error takes priority — blacklist the runner immediately
+	if hw.Detected() {
+		result.State = task.StateFailed
+		result.ConnectivityError = hw.Reason()
+		result.Error = hw.Reason()
 		return result
 	}
 

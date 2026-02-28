@@ -227,6 +227,9 @@ func (lr *LiveReporter) formatFailed(res *task.TaskResult) string {
 		label = "skipped"
 	}
 	errMsg := res.Error
+	if res.ConnectivityError != "" {
+		errMsg = res.ConnectivityError
+	}
 	if len(errMsg) > 40 {
 		errMsg = errMsg[:40] + "..."
 	}
