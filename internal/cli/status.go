@@ -41,6 +41,12 @@ func showStatus(runDir string) error {
 	}
 
 	fmt.Printf("Run: %s\n", report.Timestamp.Format("2006-01-02 15:04:05"))
+	if report.RunID != "" {
+		fmt.Printf("Run ID: %s\n", report.RunID)
+	}
+	if report.ParentRunID != "" {
+		fmt.Printf("Parent: %s\n", report.ParentRunID)
+	}
 	fmt.Printf("Tasks files: %s\n", strings.Join(report.TasksFiles, ", "))
 	fmt.Printf("Workers: %d\n", report.Workers)
 	if report.Filter != "" {
@@ -48,14 +54,18 @@ func showStatus(runDir string) error {
 	}
 	fmt.Printf("Duration: %s\n\n", report.TotalDuration)
 
-	fmt.Printf("Total: %d  Completed: %d  Failed: %d  Skipped: %d\n\n",
-		report.TotalTasks, report.Completed, report.Failed, report.Skipped)
+	fmt.Printf("Total: %d  Completed: %d  Failed: %d  Skipped: %d  Rate limited: %d\n\n",
+		report.TotalTasks, report.Completed, report.Failed, report.Skipped, report.RateLimited)
 
 	for id, r := range report.Results {
 		status := r.State.String()
 		line := fmt.Sprintf("  %-30s  %s", id, status)
-		if r.Error != "" {
-			line += fmt.Sprintf("  (%s)", r.Error)
+		errDisplay := r.Error
+		if r.ConnectivityError != "" {
+			errDisplay = r.ConnectivityError
+		}
+		if errDisplay != "" {
+			line += fmt.Sprintf("  (%s)", errDisplay)
 		}
 		if r.Duration > 0 {
 			line += fmt.Sprintf("  %s", r.Duration)

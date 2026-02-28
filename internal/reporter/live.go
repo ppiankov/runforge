@@ -230,8 +230,8 @@ func (lr *LiveReporter) formatFailed(res *task.TaskResult) string {
 	if res.ConnectivityError != "" {
 		errMsg = res.ConnectivityError
 	}
-	if len(errMsg) > 40 {
-		errMsg = errMsg[:40] + "..."
+	if len(errMsg) > 120 {
+		errMsg = errMsg[:120] + "..."
 	}
 	return fmt.Sprintf("  %s%s %-10s %-25s %-30s %s%s",
 		lr.c(colorRed), icon, label, res.TaskID, title, errMsg, lr.c(colorReset))
