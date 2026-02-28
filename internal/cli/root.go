@@ -52,6 +52,7 @@ func NewRootCmd() *cobra.Command {
 	root.AddCommand(newScanCmd())
 	root.AddCommand(newIngestCmd())
 	root.AddCommand(newSentinelCmd())
+	root.AddCommand(newGraylistCmd())
 
 	return root
 }

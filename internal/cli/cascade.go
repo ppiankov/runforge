@@ -1,11 +1,13 @@
 package cli
 
 import (
+	"bufio"
 	"context"
 	"fmt"
 	"log/slog"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/ppiankov/runforge/internal/runner"
@@ -23,6 +25,7 @@ func RunWithCascade(
 	runnerNames []string,
 	maxRuntime time.Duration,
 	blacklist *runner.RunnerBlacklist,
+	graylist *runner.RunnerGraylist,
 	limiter *runner.ProviderLimiter,
 ) *task.TaskResult {
 	if len(runnerNames) == 0 {
@@ -104,6 +107,11 @@ func RunWithCascade(
 		case task.StateCompleted:
 			result.RunnerUsed = name
 			result.Attempts = attempts
+			if isFalsePositive(attemptDir) {
+				result.FalsePositive = true
+				slog.Warn("false positive: completed with 0 events",
+					"task", t.ID, "runner", name)
+			}
 			return result
 
 		case task.StateRateLimited:
@@ -258,6 +266,30 @@ func filterDataCollectionRunners(
 	return filtered
 }
 
+// filterGraylistedRunners removes graylisted runners from fallback positions
+// in the cascade. The primary runner (index 0) is never filtered — explicit
+// task.Runner assignment overrides the graylist. Uses profiles to check the
+// specific model, so graylisting "deepseek:deepseek-chat" does not block
+// "deepseek:deepseek-reasoner".
+func filterGraylistedRunners(cascade []string, graylist *runner.RunnerGraylist, profiles map[string]*task.RunnerProfileConfig) []string {
+	if graylist == nil || len(cascade) <= 1 {
+		return cascade
+	}
+	filtered := []string{cascade[0]}
+	for _, name := range cascade[1:] {
+		model := ""
+		if p, ok := profiles[name]; ok {
+			model = p.Model
+		}
+		if graylist.IsGraylisted(name, model) {
+			slog.Debug("runner graylisted, removing from fallbacks", "runner", name, "model", model)
+			continue
+		}
+		filtered = append(filtered, name)
+	}
+	return filtered
+}
+
 // resolveRunnerCascade determines the ordered list of runners to try for a task.
 func resolveRunnerCascade(t *task.Task, defaultRunner string, defaultFallbacks []string) []string {
 	primary := t.Runner
@@ -278,4 +310,38 @@ func resolveRunnerCascade(t *task.Task, defaultRunner string, defaultFallbacks [
 	}
 
 	return names
+}
+
+// isFalsePositive checks whether a completed task actually produced work.
+// Returns true if events.jsonl is missing or contains 0 non-empty lines.
+// This is a fast, synchronous check called immediately after task completion.
+func isFalsePositive(outputDir string) bool {
+	eventsPath := filepath.Join(outputDir, "events.jsonl")
+	if _, err := os.Stat(eventsPath); err != nil {
+		// check attempt subdirectories
+		entries, _ := os.ReadDir(outputDir)
+		for _, e := range entries {
+			if e.IsDir() && strings.HasPrefix(e.Name(), "attempt-") {
+				candidate := filepath.Join(outputDir, e.Name(), "events.jsonl")
+				if _, err := os.Stat(candidate); err == nil {
+					eventsPath = candidate
+					break
+				}
+			}
+		}
+	}
+
+	f, err := os.Open(eventsPath)
+	if err != nil {
+		return true // no events file = no work
+	}
+	defer func() { _ = f.Close() }()
+
+	scanner := bufio.NewScanner(f)
+	for scanner.Scan() {
+		if strings.TrimSpace(scanner.Text()) != "" {
+			return false // at least one event = real work
+		}
+	}
+	return true // 0 events = false positive
 }

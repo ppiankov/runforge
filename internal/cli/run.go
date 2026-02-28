@@ -314,6 +314,7 @@ func executeRun(cfg execRunConfig) (*execRunResult, error) {
 		defaultRunner = "codex"
 	}
 	blacklist := runner.LoadBlacklist(runner.DefaultBlacklistPath())
+	graylist := runner.LoadGraylist(runner.DefaultGraylistPath())
 
 	// build per-provider concurrency limiter from settings
 	var concurrencyLimits map[string]int
@@ -359,7 +360,8 @@ func executeRun(cfg execRunConfig) (*execRunResult, error) {
 
 		cascade := resolveRunnerCascade(t, defaultRunner, tf.DefaultFallbacks)
 		cascade = filterDataCollectionRunners(cascade, t.Repo, tf.Runners, privateRepos)
-		return RunWithCascade(ctx, t, repoDir, outputDir, runners, cascade, cfg.maxRuntime, blacklist, limiter)
+		cascade = filterGraylistedRunners(cascade, graylist, tf.Runners)
+		return RunWithCascade(ctx, t, repoDir, outputDir, runners, cascade, cfg.maxRuntime, blacklist, graylist, limiter)
 	}
 
 	// run scheduler
@@ -450,6 +452,9 @@ func executeRun(cfg execRunConfig) (*execRunResult, error) {
 		slog.Warn("failed to write sarif report", "error", err)
 	}
 
+	// auto-graylist runners that produced false positives
+	autoGraylistRunners(results, graylist, tf.Runners, report.RunID)
+
 	// run post_run hook if configured
 	if cfg.postRun != "" {
 		absRunDir, _ := filepath.Abs(runDir)
@@ -505,6 +510,9 @@ func buildReport(tasksFiles []string, workers int, filter, reposDir string, resu
 		switch r.State {
 		case task.StateCompleted:
 			report.Completed++
+			if r.FalsePositive {
+				report.FalsePositives++
+			}
 		case task.StateFailed:
 			report.Failed++
 		case task.StateSkipped:
@@ -715,6 +723,47 @@ func resolveProxyConfig(pc *config.ProxyConfig) (neurorouter.ProxyConfig, error)
 		}
 	}
 	return cfg, nil
+}
+
+// autoGraylistRunners scans results for false positives and auto-graylists
+// the responsible runner+model pairs. Prints a summary of actions taken.
+func autoGraylistRunners(results map[string]*task.TaskResult, graylist *runner.RunnerGraylist, profiles map[string]*task.RunnerProfileConfig, runID string) {
+	if graylist == nil {
+		return
+	}
+
+	// collect runner+model pairs that produced false positives
+	type key struct{ runner, model string }
+	counts := make(map[key]int)
+	for _, res := range results {
+		if res.FalsePositive && res.RunnerUsed != "" {
+			model := ""
+			if p, ok := profiles[res.RunnerUsed]; ok {
+				model = p.Model
+			}
+			counts[key{res.RunnerUsed, model}]++
+		}
+	}
+
+	if len(counts) == 0 {
+		return
+	}
+
+	fmt.Fprintf(os.Stdout, "\nFalse positives detected:\n")
+	for k, count := range counts {
+		reason := fmt.Sprintf("false positive: %d tasks with 0 events in run %s", count, runID)
+		label := k.runner
+		if k.model != "" {
+			label = k.runner + " (model: " + k.model + ")"
+		}
+		if !graylist.IsGraylisted(k.runner, k.model) {
+			graylist.Add(k.runner, k.model, reason)
+			fmt.Fprintf(os.Stdout, "  graylisted %s (%d tasks, 0 events)\n", label, count)
+		} else {
+			fmt.Fprintf(os.Stdout, "  %s already graylisted (%d more false positives)\n", label, count)
+		}
+	}
+	fmt.Fprintf(os.Stdout, "  Use 'runforge graylist list' to view, 'runforge graylist remove <runner>' to reinstate\n")
 }
 
 // writeTaskMeta saves a task's metadata (id, repo, prompt, runner) to the output dir

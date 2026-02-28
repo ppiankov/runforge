@@ -160,6 +160,9 @@ func (r *TextReporter) PrintSummary(report *task.RunReport) {
 	if report.RateLimited > 0 {
 		fmt.Fprintf(r.w, "%sRate limited: %d%s  ", r.c(colorYellow), report.RateLimited, r.c(colorReset))
 	}
+	if report.FalsePositives > 0 {
+		fmt.Fprintf(r.w, "%sFalse positive: %d%s  ", r.c(colorRed), report.FalsePositives, r.c(colorReset))
+	}
 	fallbackCount := countFallbacks(report)
 	if fallbackCount > 0 {
 		fmt.Fprintf(r.w, "%sFallback: %d%s  ", r.c(colorYellow), fallbackCount, r.c(colorReset))

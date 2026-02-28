@@ -3,6 +3,8 @@ package cli
 import (
 	"context"
 	"fmt"
+	"os"
+	"path/filepath"
 	"testing"
 	"time"
 
@@ -47,7 +49,7 @@ func TestCascade_FirstSucceeds(t *testing.T) {
 
 	tk := &task.Task{ID: "test-1", Repo: "test/repo", Prompt: "do stuff"}
 	bl := runner.NewRunnerBlacklist()
-	result := RunWithCascade(context.Background(), tk, "/tmp", t.TempDir(), runners, []string{"codex", "zai"}, 5*time.Minute, bl, nil)
+	result := RunWithCascade(context.Background(), tk, "/tmp", t.TempDir(), runners, []string{"codex", "zai"}, 5*time.Minute, bl, nil, nil)
 
 	if result.State != task.StateCompleted {
 		t.Fatalf("expected completed, got %s", result.State)
@@ -73,7 +75,7 @@ func TestCascade_FirstRateLimited(t *testing.T) {
 
 	tk := &task.Task{ID: "test-2", Repo: "test/repo", Prompt: "do stuff"}
 	bl := runner.NewRunnerBlacklist()
-	result := RunWithCascade(context.Background(), tk, "/tmp", t.TempDir(), runners, []string{"codex", "zai"}, 5*time.Minute, bl, nil)
+	result := RunWithCascade(context.Background(), tk, "/tmp", t.TempDir(), runners, []string{"codex", "zai"}, 5*time.Minute, bl, nil, nil)
 
 	if result.State != task.StateCompleted {
 		t.Fatalf("expected completed, got %s", result.State)
@@ -98,7 +100,7 @@ func TestCascade_FirstFailed(t *testing.T) {
 
 	tk := &task.Task{ID: "test-3", Repo: "test/repo", Prompt: "do stuff"}
 	bl := runner.NewRunnerBlacklist()
-	result := RunWithCascade(context.Background(), tk, "/tmp", t.TempDir(), runners, []string{"codex", "zai"}, 5*time.Minute, bl, nil)
+	result := RunWithCascade(context.Background(), tk, "/tmp", t.TempDir(), runners, []string{"codex", "zai"}, 5*time.Minute, bl, nil, nil)
 
 	if result.State != task.StateCompleted {
 		t.Fatalf("expected completed, got %s", result.State)
@@ -120,7 +122,7 @@ func TestCascade_AllFail(t *testing.T) {
 
 	tk := &task.Task{ID: "test-4", Repo: "test/repo", Prompt: "do stuff"}
 	bl := runner.NewRunnerBlacklist()
-	result := RunWithCascade(context.Background(), tk, "/tmp", t.TempDir(), runners, []string{"codex", "zai"}, 5*time.Minute, bl, nil)
+	result := RunWithCascade(context.Background(), tk, "/tmp", t.TempDir(), runners, []string{"codex", "zai"}, 5*time.Minute, bl, nil, nil)
 
 	if result.State != task.StateFailed {
 		t.Fatalf("expected failed, got %s", result.State)
@@ -147,7 +149,7 @@ func TestCascade_BlacklistSkips(t *testing.T) {
 	bl.Block("codex", time.Now().Add(4*time.Hour))
 
 	tk := &task.Task{ID: "test-5", Repo: "test/repo", Prompt: "do stuff"}
-	result := RunWithCascade(context.Background(), tk, "/tmp", t.TempDir(), runners, []string{"codex", "zai"}, 5*time.Minute, bl, nil)
+	result := RunWithCascade(context.Background(), tk, "/tmp", t.TempDir(), runners, []string{"codex", "zai"}, 5*time.Minute, bl, nil, nil)
 
 	if result.State != task.StateCompleted {
 		t.Fatalf("expected completed, got %s", result.State)
@@ -173,7 +175,7 @@ func TestCascade_NoFallbacks(t *testing.T) {
 
 	tk := &task.Task{ID: "test-6", Repo: "test/repo", Prompt: "do stuff"}
 	bl := runner.NewRunnerBlacklist()
-	result := RunWithCascade(context.Background(), tk, "/tmp", t.TempDir(), runners, []string{"codex"}, 5*time.Minute, bl, nil)
+	result := RunWithCascade(context.Background(), tk, "/tmp", t.TempDir(), runners, []string{"codex"}, 5*time.Minute, bl, nil, nil)
 
 	if result.State != task.StateCompleted {
 		t.Fatalf("expected completed, got %s", result.State)
@@ -202,7 +204,7 @@ func TestCascade_AttemptsRecorded(t *testing.T) {
 
 	tk := &task.Task{ID: "test-7", Repo: "test/repo", Prompt: "do stuff"}
 	bl := runner.NewRunnerBlacklist()
-	result := RunWithCascade(context.Background(), tk, "/tmp", t.TempDir(), runners, []string{"codex", "zai", "claude-api"}, 5*time.Minute, bl, nil)
+	result := RunWithCascade(context.Background(), tk, "/tmp", t.TempDir(), runners, []string{"codex", "zai", "claude-api"}, 5*time.Minute, bl, nil, nil)
 
 	if result.State != task.StateCompleted {
 		t.Fatalf("expected completed, got %s", result.State)
@@ -243,7 +245,7 @@ func TestCascade_RateLimitBlocksForSubsequentTasks(t *testing.T) {
 
 	// first task triggers rate limit
 	tk1 := &task.Task{ID: "task-1", Repo: "test/repo", Prompt: "first"}
-	r1 := RunWithCascade(context.Background(), tk1, "/tmp", t.TempDir(), runners, []string{"codex", "zai"}, 5*time.Minute, bl, nil)
+	r1 := RunWithCascade(context.Background(), tk1, "/tmp", t.TempDir(), runners, []string{"codex", "zai"}, 5*time.Minute, bl, nil, nil)
 	if r1.State != task.StateCompleted {
 		t.Fatalf("task-1: expected completed, got %s", r1.State)
 	}
@@ -253,7 +255,7 @@ func TestCascade_RateLimitBlocksForSubsequentTasks(t *testing.T) {
 
 	// second task should skip codex entirely
 	tk2 := &task.Task{ID: "task-2", Repo: "test/repo", Prompt: "second"}
-	r2 := RunWithCascade(context.Background(), tk2, "/tmp", t.TempDir(), runners, []string{"codex", "zai"}, 5*time.Minute, bl, nil)
+	r2 := RunWithCascade(context.Background(), tk2, "/tmp", t.TempDir(), runners, []string{"codex", "zai"}, 5*time.Minute, bl, nil, nil)
 	if r2.State != task.StateCompleted {
 		t.Fatalf("task-2: expected completed, got %s", r2.State)
 	}
@@ -507,6 +509,109 @@ func TestBuildRunnerRegistry_BuiltinsOnly(t *testing.T) {
 		if _, ok := reg[name]; !ok {
 			t.Fatalf("expected built-in runner %q", name)
 		}
+	}
+}
+
+func TestFilterGraylistedRunners_KeepsPrimary(t *testing.T) {
+	gl := runner.NewRunnerGraylist()
+	gl.Add("codex", "", "test reason")
+	gl.Add("gemini", "", "another reason")
+
+	cascade := []string{"codex", "claude", "gemini"}
+	result := filterGraylistedRunners(cascade, gl, nil)
+
+	// primary (codex) must stay even though graylisted; gemini filtered from fallbacks
+	expected := []string{"codex", "claude"}
+	if fmt.Sprintf("%v", result) != fmt.Sprintf("%v", expected) {
+		t.Fatalf("expected %v, got %v", expected, result)
+	}
+}
+
+func TestFilterGraylistedRunners_FiltersFallbacks(t *testing.T) {
+	gl := runner.NewRunnerGraylist()
+	gl.Add("minimax-free", "", "false positive")
+	gl.Add("gpt5nano", "", "0 events")
+
+	cascade := []string{"codex", "minimax-free", "claude", "gpt5nano"}
+	result := filterGraylistedRunners(cascade, gl, nil)
+
+	expected := []string{"codex", "claude"}
+	if fmt.Sprintf("%v", result) != fmt.Sprintf("%v", expected) {
+		t.Fatalf("expected %v, got %v", expected, result)
+	}
+}
+
+func TestFilterGraylistedRunners_NilGraylist(t *testing.T) {
+	cascade := []string{"codex", "claude"}
+	result := filterGraylistedRunners(cascade, nil, nil)
+
+	if fmt.Sprintf("%v", result) != fmt.Sprintf("%v", cascade) {
+		t.Fatalf("nil graylist should pass through, got %v", result)
+	}
+}
+
+func TestFilterGraylistedRunners_SingleRunner(t *testing.T) {
+	gl := runner.NewRunnerGraylist()
+	gl.Add("codex", "", "test")
+
+	cascade := []string{"codex"}
+	result := filterGraylistedRunners(cascade, gl, nil)
+
+	// single runner = no fallbacks to filter
+	if len(result) != 1 || result[0] != "codex" {
+		t.Fatalf("single runner cascade should pass through, got %v", result)
+	}
+}
+
+func TestFilterGraylistedRunners_ModelAware(t *testing.T) {
+	gl := runner.NewRunnerGraylist()
+	gl.Add("deepseek", "deepseek-chat", "cheap model")
+
+	profiles := map[string]*task.RunnerProfileConfig{
+		"deepseek":     {Type: "opencode", Model: "deepseek-chat"},
+		"deepseek-pro": {Type: "opencode", Model: "deepseek-reasoner"},
+	}
+
+	cascade := []string{"codex", "deepseek", "deepseek-pro"}
+	result := filterGraylistedRunners(cascade, gl, profiles)
+
+	// deepseek (deepseek-chat) should be filtered; deepseek-pro (deepseek-reasoner) should stay
+	expected := []string{"codex", "deepseek-pro"}
+	if fmt.Sprintf("%v", result) != fmt.Sprintf("%v", expected) {
+		t.Fatalf("expected %v, got %v", expected, result)
+	}
+}
+
+func TestIsFalsePositive_EmptyDir(t *testing.T) {
+	dir := t.TempDir()
+	if !isFalsePositive(dir) {
+		t.Fatal("empty dir should be false positive")
+	}
+}
+
+func TestIsFalsePositive_EmptyEventsFile(t *testing.T) {
+	dir := t.TempDir()
+	_ = os.WriteFile(filepath.Join(dir, "events.jsonl"), []byte(""), 0o644)
+	if !isFalsePositive(dir) {
+		t.Fatal("empty events.jsonl should be false positive")
+	}
+}
+
+func TestIsFalsePositive_WithEvents(t *testing.T) {
+	dir := t.TempDir()
+	_ = os.WriteFile(filepath.Join(dir, "events.jsonl"), []byte(`{"type":"text","part":{"text":"hello"}}`+"\n"), 0o644)
+	if isFalsePositive(dir) {
+		t.Fatal("non-empty events.jsonl should not be false positive")
+	}
+}
+
+func TestIsFalsePositive_AttemptSubdir(t *testing.T) {
+	dir := t.TempDir()
+	attemptDir := filepath.Join(dir, "attempt-2-claude")
+	_ = os.MkdirAll(attemptDir, 0o755)
+	_ = os.WriteFile(filepath.Join(attemptDir, "events.jsonl"), []byte(`{"type":"text"}`+"\n"), 0o644)
+	if isFalsePositive(dir) {
+		t.Fatal("events in attempt subdir should not be false positive")
 	}
 }
 

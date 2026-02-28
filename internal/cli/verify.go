@@ -155,6 +155,9 @@ func verifyRun(runDir, reposDir string, markDone bool) error {
 	}
 	fmt.Printf("\nVerified: %d pass, %d fail, %d skip\n", pass, fail, skip)
 
+	// suggest graylist candidates: runners that reported success with 0 events
+	suggestGraylistCandidates(results, report)
+
 	if markDone && pass > 0 {
 		fmt.Println("\n--mark-done is not yet implemented")
 	}
@@ -323,6 +326,45 @@ func checkLint(repoPath string) checkResult {
 		return checkResult{Name: "lint", Passed: false, Detail: fmt.Sprintf("lint failed: %s", lastLine)}
 	}
 	return checkResult{Name: "lint", Passed: true, Detail: "lint clean"}
+}
+
+// suggestGraylistCandidates prints advisory graylist add commands for runners
+// that produced false positives (reported success but failed verification).
+func suggestGraylistCandidates(results []verifyResult, report task.RunReport) {
+	// collect runners that had false-positive tasks
+	candidates := make(map[string]int) // runner → count of false positives
+	for _, vr := range results {
+		if vr.Status != "FAIL" {
+			continue
+		}
+		// check if any check indicates a false positive (empty events or uncommitted changes)
+		falsePositive := false
+		for _, c := range vr.Checks {
+			if !c.Passed && (c.Name == "events" || c.Name == "git-diff") {
+				falsePositive = true
+				break
+			}
+		}
+		if !falsePositive {
+			continue
+		}
+		res := report.Results[vr.TaskID]
+		if res == nil || res.RunnerUsed == "" {
+			continue
+		}
+		candidates[res.RunnerUsed]++
+	}
+
+	if len(candidates) == 0 {
+		return
+	}
+
+	fmt.Println("\nGraylist candidates (reported success with 0 events or uncommitted changes):")
+	for name, count := range candidates {
+		fmt.Printf("  runforge graylist add %s --reason \"false positive: %d tasks in run %s\"\n",
+			name, count, report.RunID)
+	}
+	fmt.Println("  Tip: use --model <model> to graylist a specific model instead of all models for that runner")
 }
 
 func lastNonEmptyLine(s string) string {

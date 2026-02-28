@@ -144,6 +144,8 @@ type TaskResult struct {
 
 	ConnectivityError string `json:"connectivity_error,omitempty"` // TLS/DNS/connection error classification
 
+	FalsePositive bool `json:"false_positive,omitempty"` // completed with 0 events (no real work)
+
 	RunnerUsed string        `json:"runner_used,omitempty"` // profile that produced the final result
 	Attempts   []AttemptInfo `json:"attempts,omitempty"`    // all cascade attempts
 	Review     *ReviewResult `json:"review,omitempty"`      // auto-review result
@@ -160,21 +162,22 @@ type ReviewResult struct {
 
 // RunReport is the final output of a runforge execution.
 type RunReport struct {
-	RunID         string                 `json:"run_id"`
-	ParentRunID   string                 `json:"parent_run_id,omitempty"`
-	Timestamp     time.Time              `json:"timestamp"`
-	TasksFiles    []string               `json:"tasks_files"`
-	Workers       int                    `json:"workers"`
-	Filter        string                 `json:"filter,omitempty"`
-	ReposDir      string                 `json:"repos_dir"`
-	Results       map[string]*TaskResult `json:"results"`
-	TotalTasks    int                    `json:"total_tasks"`
-	Completed     int                    `json:"completed"`
-	Failed        int                    `json:"failed"`
-	Skipped       int                    `json:"skipped"`
-	RateLimited   int                    `json:"rate_limited"`
-	TotalDuration time.Duration          `json:"total_duration"`
-	ResetsAt      time.Time              `json:"resets_at,omitempty"`
+	RunID          string                 `json:"run_id"`
+	ParentRunID    string                 `json:"parent_run_id,omitempty"`
+	Timestamp      time.Time              `json:"timestamp"`
+	TasksFiles     []string               `json:"tasks_files"`
+	Workers        int                    `json:"workers"`
+	Filter         string                 `json:"filter,omitempty"`
+	ReposDir       string                 `json:"repos_dir"`
+	Results        map[string]*TaskResult `json:"results"`
+	TotalTasks     int                    `json:"total_tasks"`
+	Completed      int                    `json:"completed"`
+	Failed         int                    `json:"failed"`
+	Skipped        int                    `json:"skipped"`
+	RateLimited    int                    `json:"rate_limited"`
+	FalsePositives int                    `json:"false_positives,omitempty"`
+	TotalDuration  time.Duration          `json:"total_duration"`
+	ResetsAt       time.Time              `json:"resets_at,omitempty"`
 }
 
 // UnmarshalJSON supports both old ("tasks_file": "x.json") and new

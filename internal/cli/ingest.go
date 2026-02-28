@@ -181,5 +181,5 @@ func ExecuteIngest(ctx context.Context, payload *ingest.IngestPayload, profileNa
 		}
 	}
 
-	return RunWithCascade(ctx, t, cfg.RepoDir, outputDir, runners, cascade, cfg.MaxRuntime, blacklist, nil)
+	return RunWithCascade(ctx, t, cfg.RepoDir, outputDir, runners, cascade, cfg.MaxRuntime, blacklist, nil, nil)
 }
