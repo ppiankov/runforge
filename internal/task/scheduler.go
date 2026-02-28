@@ -28,8 +28,11 @@ type Scheduler struct {
 	graph       *Graph
 	results     map[string]*TaskResult
 	mu          sync.Mutex
-	stopping    atomic.Bool // set when fail-fast triggered
-	rateLimited atomic.Bool // set when rate limit detected
+	stopping    atomic.Bool  // set when fail-fast triggered
+	rateLimited atomic.Bool  // set when rate limit detected
+	inflight    atomic.Int64 // tracks tasks enqueued or executing
+	doneCh      chan struct{}
+	doneOnce    sync.Once
 }
 
 // NewScheduler creates a scheduler for the given task graph.
@@ -54,6 +57,7 @@ func NewScheduler(graph *Graph, cfg SchedulerConfig) *Scheduler {
 func (s *Scheduler) Run(ctx context.Context) map[string]*TaskResult {
 	var wg sync.WaitGroup
 	work := make(chan string, len(s.graph.Tasks()))
+	s.doneCh = make(chan struct{})
 
 	// start workers
 	for i := 0; i < s.cfg.Workers; i++ {
@@ -75,9 +79,11 @@ func (s *Scheduler) Run(ctx context.Context) map[string]*TaskResult {
 					}
 					s.mu.Unlock()
 					s.notify(id)
+					s.decInflight()
 					continue
 				}
-				s.execute(ctx, id)
+				s.execute(ctx, id, work)
+				s.decInflight()
 			}
 		}()
 	}
@@ -86,37 +92,28 @@ func (s *Scheduler) Run(ctx context.Context) map[string]*TaskResult {
 	roots := s.graph.Roots()
 	for _, id := range roots {
 		s.setState(id, StateReady)
+		s.inflight.Add(1)
 		work <- id
 	}
 
-	// wait for completion using a done channel
-	done := make(chan struct{})
-	go func() {
-		// poll until all tasks are terminal
-		for {
-			s.mu.Lock()
-			allDone := true
-			for _, r := range s.results {
-				if r.State == StatePending || r.State == StateReady || r.State == StateRunning {
-					allDone = false
-					break
-				}
-			}
-			s.mu.Unlock()
+	// if no roots (empty graph), signal done immediately
+	if len(roots) == 0 {
+		s.doneOnce.Do(func() { close(s.doneCh) })
+	}
 
-			if allDone {
-				close(done)
-				return
-			}
-			time.Sleep(100 * time.Millisecond)
-		}
-	}()
-
-	<-done
+	// wait for all tasks to reach terminal state
+	<-s.doneCh
 	close(work)
 	wg.Wait()
 
 	return s.results
+}
+
+// decInflight decrements the inflight counter and signals done when it reaches zero.
+func (s *Scheduler) decInflight() {
+	if s.inflight.Add(-1) <= 0 {
+		s.doneOnce.Do(func() { close(s.doneCh) })
+	}
 }
 
 // Results returns the current state of all task results.
@@ -131,7 +128,7 @@ func (s *Scheduler) Results() map[string]*TaskResult {
 	return cp
 }
 
-func (s *Scheduler) execute(ctx context.Context, id string) {
+func (s *Scheduler) execute(ctx context.Context, id string, work chan<- string) {
 	task := s.graph.Task(id)
 	if task == nil {
 		s.setFailed(id, "task not found in graph")
@@ -158,7 +155,7 @@ func (s *Scheduler) execute(ctx context.Context, id string) {
 	// handle dependents
 	switch result.State {
 	case StateCompleted:
-		s.unlockChildren(id)
+		s.unlockChildren(id, work)
 	case StateRateLimited:
 		s.rateLimited.Store(true)
 		s.stopping.Store(true)
@@ -171,7 +168,7 @@ func (s *Scheduler) execute(ctx context.Context, id string) {
 	}
 }
 
-func (s *Scheduler) unlockChildren(id string) {
+func (s *Scheduler) unlockChildren(id string, work chan<- string) {
 	children := s.graph.Children(id)
 	for _, childID := range children {
 		// fail-fast or rate-limit: skip new tasks when stopping
@@ -212,7 +209,8 @@ func (s *Scheduler) unlockChildren(id string) {
 
 		if shouldStart {
 			s.notify(childID)
-			go s.execute(context.Background(), childID)
+			s.inflight.Add(1)
+			work <- childID
 		}
 	}
 }

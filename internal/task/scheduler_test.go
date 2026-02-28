@@ -517,6 +517,185 @@ func TestScheduler_Diamond(t *testing.T) {
 	}
 }
 
+func TestScheduler_DAGCleanExit(t *testing.T) {
+	// Verify DAG with chain a→b→c exits cleanly without hanging.
+	tasks := []Task{
+		{ID: "a", Repo: "org/r", Priority: 1, Title: "A", Prompt: "a"},
+		{ID: "b", Repo: "org/r", Priority: 1, DependsOn: []string{"a"}, Title: "B", Prompt: "b"},
+		{ID: "c", Repo: "org/r", Priority: 1, DependsOn: []string{"b"}, Title: "C", Prompt: "c"},
+	}
+
+	g, err := BuildGraph(tasks)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	execFn := func(_ context.Context, task *Task, _, _ string) *TaskResult {
+		time.Sleep(10 * time.Millisecond)
+		return &TaskResult{
+			TaskID:  task.ID,
+			State:   StateCompleted,
+			EndedAt: time.Now(),
+		}
+	}
+
+	sched := NewScheduler(g, SchedulerConfig{
+		Workers:  2,
+		ReposDir: "/tmp",
+		RunDir:   "/tmp/run",
+		ExecFn:   execFn,
+	})
+
+	done := make(chan map[string]*TaskResult, 1)
+	go func() {
+		done <- sched.Run(context.Background())
+	}()
+
+	select {
+	case results := <-done:
+		for id, r := range results {
+			if r.State != StateCompleted {
+				t.Errorf("task %s: expected COMPLETED, got %s", id, r.State)
+			}
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("scheduler hung — did not exit within 5s")
+	}
+}
+
+func TestScheduler_ContextCancelPropagation(t *testing.T) {
+	// Cancel context while DAG child is pending — child should fail via context.
+	tasks := []Task{
+		{ID: "root", Repo: "org/r", Priority: 1, Title: "Root", Prompt: "a"},
+		{ID: "child", Repo: "org/r", Priority: 1, DependsOn: []string{"root"}, Title: "Child", Prompt: "b"},
+	}
+
+	g, err := BuildGraph(tasks)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+
+	execFn := func(ctx context.Context, task *Task, _, _ string) *TaskResult {
+		if task.ID == "root" {
+			// root completes, then cancel context before child runs
+			cancel()
+			return &TaskResult{
+				TaskID:  task.ID,
+				State:   StateCompleted,
+				EndedAt: time.Now(),
+			}
+		}
+		// child should see the cancelled context
+		select {
+		case <-ctx.Done():
+			return &TaskResult{
+				TaskID:  task.ID,
+				State:   StateFailed,
+				Error:   "context cancelled",
+				EndedAt: time.Now(),
+			}
+		case <-time.After(5 * time.Second):
+			return &TaskResult{
+				TaskID:  task.ID,
+				State:   StateCompleted,
+				EndedAt: time.Now(),
+			}
+		}
+	}
+
+	sched := NewScheduler(g, SchedulerConfig{
+		Workers:  2,
+		ReposDir: "/tmp",
+		RunDir:   "/tmp/run",
+		ExecFn:   execFn,
+	})
+
+	done := make(chan map[string]*TaskResult, 1)
+	go func() {
+		done <- sched.Run(ctx)
+	}()
+
+	select {
+	case results := <-done:
+		if results["root"].State != StateCompleted {
+			t.Errorf("root: expected COMPLETED, got %s", results["root"].State)
+		}
+		if results["child"].State != StateFailed {
+			t.Errorf("child: expected FAILED (context cancelled), got %s", results["child"].State)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("scheduler hung — context cancellation not propagated")
+	}
+}
+
+func TestScheduler_WorkerLimitWithDeps(t *testing.T) {
+	// DAG children must respect the worker pool limit.
+	// a → b,c,d (fan-out); all run with Workers=2, max concurrent should be ≤2.
+	tasks := []Task{
+		{ID: "a", Repo: "org/r", Priority: 1, Title: "A", Prompt: "a"},
+		{ID: "b", Repo: "org/r", Priority: 1, DependsOn: []string{"a"}, Title: "B", Prompt: "b"},
+		{ID: "c", Repo: "org/r", Priority: 1, DependsOn: []string{"a"}, Title: "C", Prompt: "c"},
+		{ID: "d", Repo: "org/r", Priority: 1, DependsOn: []string{"a"}, Title: "D", Prompt: "d"},
+	}
+
+	g, err := BuildGraph(tasks)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	var maxConcurrent int64
+	var current int64
+
+	execFn := func(_ context.Context, task *Task, _, _ string) *TaskResult {
+		c := atomic.AddInt64(&current, 1)
+		for {
+			old := atomic.LoadInt64(&maxConcurrent)
+			if c <= old {
+				break
+			}
+			if atomic.CompareAndSwapInt64(&maxConcurrent, old, c) {
+				break
+			}
+		}
+		time.Sleep(50 * time.Millisecond)
+		atomic.AddInt64(&current, -1)
+		return &TaskResult{
+			TaskID:  task.ID,
+			State:   StateCompleted,
+			EndedAt: time.Now(),
+		}
+	}
+
+	sched := NewScheduler(g, SchedulerConfig{
+		Workers:  2,
+		ReposDir: "/tmp",
+		RunDir:   "/tmp/run",
+		ExecFn:   execFn,
+	})
+
+	done := make(chan map[string]*TaskResult, 1)
+	go func() {
+		done <- sched.Run(context.Background())
+	}()
+
+	select {
+	case results := <-done:
+		for id, r := range results {
+			if r.State != StateCompleted {
+				t.Errorf("task %s: expected COMPLETED, got %s", id, r.State)
+			}
+		}
+		mc := atomic.LoadInt64(&maxConcurrent)
+		if mc > 2 {
+			t.Errorf("max concurrent %d exceeded worker limit 2", mc)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("scheduler hung — did not exit within 5s")
+	}
+}
+
 func TestRepoName(t *testing.T) {
 	tests := []struct {
 		input string
