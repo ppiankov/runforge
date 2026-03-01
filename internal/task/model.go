@@ -94,7 +94,7 @@ func (t *Task) UnmarshalJSON(data []byte) error {
 // Profiles allow the same runner type (e.g., "claude") to be used with different
 // API endpoints or credentials (e.g., Z.ai proxy, direct API).
 type RunnerProfileConfig struct {
-	Type           string            `json:"type"`                      // "codex", "claude", "gemini", "opencode", "cline", "script"
+	Type           string            `json:"type"`                      // "codex", "claude", "gemini", "opencode", "cline", "qwen", "script"
 	Model          string            `json:"model,omitempty"`           // model override passed via --model flag
 	Profile        string            `json:"profile,omitempty"`         // codex --profile name (references config.toml)
 	Env            map[string]string `json:"env,omitempty"`             // env overrides; "env:VAR" = read from OS
