@@ -226,7 +226,7 @@ func validateStructure(tf *task.TaskFile) error {
 
 	// validate runner profiles
 	knownTypes := map[string]struct{}{"codex": {}, "claude": {}, "gemini": {}, "opencode": {}, "script": {}}
-	knownRunners := map[string]struct{}{"codex": {}, "claude": {}, "gemini": {}, "opencode": {}, "script": {}}
+	knownRunners := map[string]struct{}{"codex": {}, "claude": {}, "gemini": {}, "opencode": {}, "cline": {}, "script": {}}
 	for name, profile := range tf.Runners {
 		if profile.Type == "" {
 			return fmt.Errorf("runner profile %q has empty type", name)

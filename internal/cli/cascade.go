@@ -162,6 +162,7 @@ func buildRunnerRegistry(tf *task.TaskFile, idleTimeout time.Duration) (map[stri
 		"claude":   runner.NewClaudeRunner(idleTimeout),
 		"gemini":   runner.NewGeminiRunner(idleTimeout),
 		"opencode": runner.NewOpencodeRunner(idleTimeout),
+		"cline":    runner.NewClineRunner(idleTimeout),
 		"script":   runner.NewScriptRunner(),
 	}
 
@@ -179,6 +180,8 @@ func buildRunnerRegistry(tf *task.TaskFile, idleTimeout time.Duration) (map[stri
 			runners[name] = runner.NewGeminiRunnerWithProfile(profile.Model, resolved, idleTimeout)
 		case "opencode":
 			runners[name] = runner.NewOpencodeRunnerWithProfile(profile.Model, resolved, idleTimeout)
+		case "cline":
+			runners[name] = runner.NewClineRunnerWithProfile(resolved, idleTimeout)
 		case "script":
 			runners[name] = runner.NewScriptRunnerWithEnv(resolved)
 		default:
