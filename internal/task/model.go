@@ -146,6 +146,7 @@ type TaskResult struct {
 	ConnectivityError string `json:"connectivity_error,omitempty"` // TLS/DNS/connection error classification
 
 	FalsePositive bool `json:"false_positive,omitempty"` // completed with 0 events (no real work)
+	AutoCommitted bool `json:"auto_committed,omitempty"` // runforge committed changes the agent left unstaged
 
 	RunnerUsed string        `json:"runner_used,omitempty"` // profile that produced the final result
 	Attempts   []AttemptInfo `json:"attempts,omitempty"`    // all cascade attempts
@@ -177,6 +178,7 @@ type RunReport struct {
 	Skipped        int                    `json:"skipped"`
 	RateLimited    int                    `json:"rate_limited"`
 	FalsePositives int                    `json:"false_positives,omitempty"`
+	AutoCommits    int                    `json:"auto_commits,omitempty"`
 	TotalDuration  time.Duration          `json:"total_duration"`
 	ResetsAt       time.Time              `json:"resets_at,omitempty"`
 }

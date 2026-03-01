@@ -27,18 +27,19 @@ import (
 
 func newRunCmd() *cobra.Command {
 	var (
-		tasksFile   string
-		workers     int
-		verify      bool
-		reposDir    string
-		filter      string
-		dryRun      bool
-		maxRuntime  time.Duration
-		idleTimeout time.Duration
-		failFast    bool
-		tuiMode     string
-		allowFree   bool
-		retry       bool
+		tasksFile    string
+		workers      int
+		verify       bool
+		reposDir     string
+		filter       string
+		dryRun       bool
+		maxRuntime   time.Duration
+		idleTimeout  time.Duration
+		failFast     bool
+		tuiMode      string
+		allowFree    bool
+		retry        bool
+		noAutoCommit bool
 	)
 
 	cmd := &cobra.Command{
@@ -67,7 +68,7 @@ func newRunCmd() *cobra.Command {
 			if !cmd.Flags().Changed("verify") && cfg.Verify {
 				verify = cfg.Verify
 			}
-			return runTasks(tasksFile, workers, verify, reposDir, filter, dryRun, maxRuntime, idleTimeout, failFast, tuiMode, allowFree, retry, cfg)
+			return runTasks(tasksFile, workers, verify, reposDir, filter, dryRun, maxRuntime, idleTimeout, failFast, tuiMode, allowFree, retry, noAutoCommit, cfg)
 		},
 	}
 
@@ -83,11 +84,12 @@ func newRunCmd() *cobra.Command {
 	cmd.Flags().StringVar(&tuiMode, "tui", "auto", "display mode: full (interactive TUI), minimal (live status), off (no live display), auto (detect TTY)")
 	cmd.Flags().BoolVar(&allowFree, "allow-free", false, "include free-tier runners in fallback cascade")
 	cmd.Flags().BoolVar(&retry, "retry", false, "re-execute failed and interrupted tasks")
+	cmd.Flags().BoolVar(&noAutoCommit, "no-auto-commit", false, "disable auto-commit of uncommitted changes after task completion")
 
 	return cmd
 }
 
-func runTasks(tasksFile string, workers int, verify bool, reposDir, filter string, dryRun bool, maxRuntime, idleTimeout time.Duration, failFast bool, tuiMode string, allowFree, retry bool, cfg *config.Settings) error {
+func runTasks(tasksFile string, workers int, verify bool, reposDir, filter string, dryRun bool, maxRuntime, idleTimeout time.Duration, failFast bool, tuiMode string, allowFree, retry, noAutoCommit bool, cfg *config.Settings) error {
 	// resolve glob pattern to concrete file paths
 	paths, err := config.ResolveGlob(tasksFile)
 	if err != nil {
@@ -233,6 +235,7 @@ func runTasks(tasksFile string, workers int, verify bool, reposDir, filter strin
 		allowFree:    allowFree,
 		secretRepos:  secretRepos,
 		stateTracker: stateTracker,
+		noAutoCommit: noAutoCommit,
 	})
 	if err != nil {
 		return err
@@ -275,6 +278,7 @@ type execRunConfig struct {
 	tuiMode      string                                    // full, minimal, off, auto
 	allowFree    bool                                      // include free-tier runners in cascade
 	secretRepos  map[string]struct{}                       // repos with secrets detected by pre-scan
+	noAutoCommit bool                                      // disable auto-commit of uncommitted changes
 	stateTracker *state.Tracker                            // persistent task state across runs
 	onProgress   func(results map[string]*task.TaskResult) // optional progress callback for sentinel
 }
@@ -432,6 +436,16 @@ func executeRun(cfg execRunConfig) (*execRunResult, error) {
 			}
 		}
 		result := RunWithCascade(ctx, t, repoDir, outputDir, runners, cascade, cfg.maxRuntime, blacklist, graylist, limiter)
+
+		// auto-commit uncommitted changes for successful tasks
+		if result.State == task.StateCompleted && !cfg.noAutoCommit {
+			committed, err := runner.AutoCommit(ctx, repoDir, t)
+			if err != nil {
+				slog.Warn("auto-commit failed", "task", t.ID, "error", err)
+			} else if committed {
+				result.AutoCommitted = true
+			}
+		}
 
 		// update persistent state with final result
 		if cfg.stateTracker != nil {
@@ -597,6 +611,9 @@ func buildReport(tasksFiles []string, workers int, filter, reposDir string, resu
 			report.Completed++
 			if r.FalsePositive {
 				report.FalsePositives++
+			}
+			if r.AutoCommitted {
+				report.AutoCommits++
 			}
 		case task.StateFailed:
 			report.Failed++

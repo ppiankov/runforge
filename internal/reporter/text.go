@@ -163,6 +163,9 @@ func (r *TextReporter) PrintSummary(report *task.RunReport) {
 	if report.FalsePositives > 0 {
 		fmt.Fprintf(r.w, "%sFalse positive: %d%s  ", r.c(colorRed), report.FalsePositives, r.c(colorReset))
 	}
+	if report.AutoCommits > 0 {
+		fmt.Fprintf(r.w, "%sAuto-committed: %d%s  ", r.c(colorYellow), report.AutoCommits, r.c(colorReset))
+	}
 	fallbackCount := countFallbacks(report)
 	if fallbackCount > 0 {
 		fmt.Fprintf(r.w, "%sFallback: %d%s  ", r.c(colorYellow), fallbackCount, r.c(colorReset))
@@ -274,6 +277,9 @@ func runnerSuffix(res *task.TaskResult) string {
 		}
 	} else if res.RunnerUsed != "" {
 		parts = append(parts, res.RunnerUsed)
+	}
+	if res.AutoCommitted {
+		parts = append(parts, "auto-committed")
 	}
 	if res.Review != nil {
 		if res.Review.Passed {
