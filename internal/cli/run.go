@@ -21,6 +21,7 @@ import (
 	"github.com/ppiankov/runforge/internal/config"
 	"github.com/ppiankov/runforge/internal/reporter"
 	"github.com/ppiankov/runforge/internal/runner"
+	"github.com/ppiankov/runforge/internal/state"
 	"github.com/ppiankov/runforge/internal/task"
 )
 
@@ -37,6 +38,7 @@ func newRunCmd() *cobra.Command {
 		failFast    bool
 		tuiMode     string
 		allowFree   bool
+		retry       bool
 	)
 
 	cmd := &cobra.Command{
@@ -65,7 +67,7 @@ func newRunCmd() *cobra.Command {
 			if !cmd.Flags().Changed("verify") && cfg.Verify {
 				verify = cfg.Verify
 			}
-			return runTasks(tasksFile, workers, verify, reposDir, filter, dryRun, maxRuntime, idleTimeout, failFast, tuiMode, allowFree, cfg)
+			return runTasks(tasksFile, workers, verify, reposDir, filter, dryRun, maxRuntime, idleTimeout, failFast, tuiMode, allowFree, retry, cfg)
 		},
 	}
 
@@ -80,11 +82,12 @@ func newRunCmd() *cobra.Command {
 	cmd.Flags().BoolVar(&failFast, "fail-fast", false, "stop spawning new tasks on first failure")
 	cmd.Flags().StringVar(&tuiMode, "tui", "auto", "display mode: full (interactive TUI), minimal (live status), off (no live display), auto (detect TTY)")
 	cmd.Flags().BoolVar(&allowFree, "allow-free", false, "include free-tier runners in fallback cascade")
+	cmd.Flags().BoolVar(&retry, "retry", false, "re-execute failed and interrupted tasks")
 
 	return cmd
 }
 
-func runTasks(tasksFile string, workers int, verify bool, reposDir, filter string, dryRun bool, maxRuntime, idleTimeout time.Duration, failFast bool, tuiMode string, allowFree bool, cfg *config.Settings) error {
+func runTasks(tasksFile string, workers int, verify bool, reposDir, filter string, dryRun bool, maxRuntime, idleTimeout time.Duration, failFast bool, tuiMode string, allowFree, retry bool, cfg *config.Settings) error {
 	// resolve glob pattern to concrete file paths
 	paths, err := config.ResolveGlob(tasksFile)
 	if err != nil {
@@ -119,6 +122,23 @@ func runTasks(tasksFile string, workers int, verify bool, reposDir, filter strin
 		if len(tasks) == 0 {
 			return fmt.Errorf("no tasks match filter %q", filter)
 		}
+	}
+
+	// load persistent state and filter completed/failed tasks
+	stateTracker := state.Load(state.DefaultPath())
+	if recovered := stateTracker.RecoverInterrupted(); recovered > 0 {
+		slog.Warn("recovered interrupted tasks from previous run", "count", recovered)
+	}
+	var skippedByState []state.SkippedTask
+	tasks, skippedByState = state.FilterTasks(tasks, stateTracker, retry)
+	if len(skippedByState) > 0 && !dryRun {
+		for _, s := range skippedByState {
+			slog.Info("task skipped by state", "task", s.ID, "reason", s.Reason)
+		}
+	}
+	if len(tasks) == 0 {
+		fmt.Println("All tasks already completed (use --retry to re-execute failed tasks, or 'runforge state clear' to reset)")
+		return nil
 	}
 
 	// stripe runner assignments for parallel provider utilization
@@ -163,7 +183,14 @@ func runTasks(tasksFile string, workers int, verify bool, reposDir, filter strin
 
 	// dry run
 	if dryRun {
-		textRep.PrintHeader(len(tasks), workers)
+		textRep.PrintHeader(len(tasks)+len(skippedByState), workers)
+		if len(skippedByState) > 0 {
+			infos := make([]reporter.SkippedInfo, len(skippedByState))
+			for i, s := range skippedByState {
+				infos[i] = reporter.SkippedInfo{ID: s.ID, Reason: s.Reason}
+			}
+			textRep.PrintSkippedByState(infos)
+		}
 		if len(modelResolutions) > 0 {
 			reps := make([]reporter.ModelResolution, len(modelResolutions))
 			for i, r := range modelResolutions {
@@ -180,20 +207,21 @@ func runTasks(tasksFile string, workers int, verify bool, reposDir, filter strin
 	}
 
 	report, err := executeRun(execRunConfig{
-		tasksFiles:  paths,
-		taskFile:    tf,
-		tasks:       tasks,
-		graph:       graph,
-		workers:     workers,
-		reposDir:    reposDir,
-		filter:      filter,
-		maxRuntime:  maxRuntime,
-		idleTimeout: idleTimeout,
-		failFast:    failFast,
-		postRun:     cfg.PostRun,
-		settings:    cfg,
-		tuiMode:     tuiMode,
-		allowFree:   allowFree,
+		tasksFiles:   paths,
+		taskFile:     tf,
+		tasks:        tasks,
+		graph:        graph,
+		workers:      workers,
+		reposDir:     reposDir,
+		filter:       filter,
+		maxRuntime:   maxRuntime,
+		idleTimeout:  idleTimeout,
+		failFast:     failFast,
+		postRun:      cfg.PostRun,
+		settings:     cfg,
+		tuiMode:      tuiMode,
+		allowFree:    allowFree,
+		stateTracker: stateTracker,
 	})
 	if err != nil {
 		return err
@@ -220,22 +248,23 @@ func runTasks(tasksFile string, workers int, verify bool, reposDir, filter strin
 
 // execRunConfig holds parameters for executeRun.
 type execRunConfig struct {
-	tasksFiles  []string
-	taskFile    *task.TaskFile // full parsed/merged file with profiles
-	tasks       []task.Task
-	graph       *task.Graph
-	workers     int
-	reposDir    string
-	filter      string
-	maxRuntime  time.Duration
-	idleTimeout time.Duration
-	failFast    bool
-	parentRunID string                                    // links rerun to original run
-	postRun     string                                    // shell command to run after report is written
-	settings    *config.Settings                          // runtime settings for limiter etc.
-	tuiMode     string                                    // full, minimal, off, auto
-	allowFree   bool                                      // include free-tier runners in cascade
-	onProgress  func(results map[string]*task.TaskResult) // optional progress callback for sentinel
+	tasksFiles   []string
+	taskFile     *task.TaskFile // full parsed/merged file with profiles
+	tasks        []task.Task
+	graph        *task.Graph
+	workers      int
+	reposDir     string
+	filter       string
+	maxRuntime   time.Duration
+	idleTimeout  time.Duration
+	failFast     bool
+	parentRunID  string                                    // links rerun to original run
+	postRun      string                                    // shell command to run after report is written
+	settings     *config.Settings                          // runtime settings for limiter etc.
+	tuiMode      string                                    // full, minimal, off, auto
+	allowFree    bool                                      // include free-tier runners in cascade
+	stateTracker *state.Tracker                            // persistent task state across runs
+	onProgress   func(results map[string]*task.TaskResult) // optional progress callback for sentinel
 }
 
 // execRunResult wraps the report and run directory.
@@ -367,6 +396,11 @@ func executeRun(cfg execRunConfig) (*execRunResult, error) {
 		}
 		defer runner.Release(repoDir)
 
+		// mark task as in_progress in persistent state
+		if cfg.stateTracker != nil {
+			cfg.stateTracker.MarkStarted(t.ID, "")
+		}
+
 		// save task metadata so output dir is self-contained
 		writeTaskMeta(outputDir, t)
 
@@ -374,7 +408,19 @@ func executeRun(cfg execRunConfig) (*execRunResult, error) {
 		cascade = filterDataCollectionRunners(cascade, t.Repo, tf.Runners, privateRepos)
 		cascade = filterGraylistedRunners(cascade, graylist, tf.Runners)
 		cascade = filterFreeRunners(cascade, cfg.allowFree, tf.Runners)
-		return RunWithCascade(ctx, t, repoDir, outputDir, runners, cascade, cfg.maxRuntime, blacklist, graylist, limiter)
+		result := RunWithCascade(ctx, t, repoDir, outputDir, runners, cascade, cfg.maxRuntime, blacklist, graylist, limiter)
+
+		// update persistent state with final result
+		if cfg.stateTracker != nil {
+			switch result.State {
+			case task.StateCompleted:
+				cfg.stateTracker.MarkCompleted(t.ID, result.RunnerUsed, gitHead(repoDir))
+			case task.StateFailed:
+				cfg.stateTracker.MarkFailed(t.ID, result.Error)
+			}
+		}
+
+		return result
 	}
 
 	// run scheduler

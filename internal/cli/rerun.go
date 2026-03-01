@@ -10,6 +10,7 @@ import (
 
 	"github.com/ppiankov/runforge/internal/config"
 	"github.com/ppiankov/runforge/internal/reporter"
+	"github.com/ppiankov/runforge/internal/state"
 	"github.com/ppiankov/runforge/internal/task"
 )
 
@@ -200,19 +201,20 @@ func rerunTasks(runDir string, workers int, reposDir string, maxRuntime, idleTim
 		countState(prevReport, task.StateRateLimited, rerunIDs))
 
 	result, err := executeRun(execRunConfig{
-		tasksFiles:  prevReport.TasksFiles,
-		taskFile:    tf,
-		tasks:       tasks,
-		graph:       graph,
-		workers:     workers,
-		reposDir:    reposDir,
-		maxRuntime:  maxRuntime,
-		idleTimeout: idleTimeout,
-		failFast:    failFast,
-		parentRunID: prevReport.RunID,
-		postRun:     cfg.PostRun,
-		settings:    cfg,
-		tuiMode:     tuiMode,
+		tasksFiles:   prevReport.TasksFiles,
+		taskFile:     tf,
+		tasks:        tasks,
+		graph:        graph,
+		workers:      workers,
+		reposDir:     reposDir,
+		maxRuntime:   maxRuntime,
+		idleTimeout:  idleTimeout,
+		failFast:     failFast,
+		parentRunID:  prevReport.RunID,
+		postRun:      cfg.PostRun,
+		settings:     cfg,
+		tuiMode:      tuiMode,
+		stateTracker: state.Load(state.DefaultPath()),
 	})
 	if err != nil {
 		return err

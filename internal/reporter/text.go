@@ -195,6 +195,21 @@ func (r *TextReporter) PrintModelResolutions(resolutions []ModelResolution) {
 	fmt.Fprintln(r.w)
 }
 
+// SkippedInfo describes a task skipped due to persistent state.
+type SkippedInfo struct {
+	ID     string
+	Reason string
+}
+
+// PrintSkippedByState writes the list of tasks skipped due to persistent state.
+func (r *TextReporter) PrintSkippedByState(skipped []SkippedInfo) {
+	fmt.Fprintf(r.w, "%sSkipped by state:%s\n", r.c(colorDim), r.c(colorReset))
+	for _, s := range skipped {
+		fmt.Fprintf(r.w, "  %s%-30s%s  %s\n", r.c(colorDim), s.ID, r.c(colorReset), s.Reason)
+	}
+	fmt.Fprintln(r.w)
+}
+
 // PrintDryRun writes the execution plan without running anything.
 func (r *TextReporter) PrintDryRun(graph *task.Graph, reposDir string) {
 	fmt.Fprint(r.w, "Execution plan (dry-run):\n\n")
