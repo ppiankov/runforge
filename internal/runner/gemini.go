@@ -58,7 +58,7 @@ func (r *GeminiRunner) Run(ctx context.Context, t *task.Task, repoDir, outputDir
 	if r.model != "" {
 		args = append(args, "--model", r.model)
 	}
-	args = append(args, t.Prompt)
+	args = append(args, "-p", t.Prompt)
 
 	slog.Debug("spawning gemini", "task", t.ID, "repo", t.Repo, "dir", repoDir, "model", r.model)
 
