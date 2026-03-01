@@ -210,6 +210,15 @@ func (r *TextReporter) PrintSkippedByState(skipped []SkippedInfo) {
 	fmt.Fprintln(r.w)
 }
 
+// PrintSecretRepos writes repos where secrets were detected during pre-scan.
+func (r *TextReporter) PrintSecretRepos(repos []string) {
+	fmt.Fprintf(r.w, "%sRepos with secrets (unsafe runners excluded from fallbacks):%s\n", r.c(colorYellow), r.c(colorReset))
+	for _, repo := range repos {
+		fmt.Fprintf(r.w, "  %s%s%s\n", r.c(colorYellow), repo, r.c(colorReset))
+	}
+	fmt.Fprintln(r.w)
+}
+
 // PrintDryRun writes the execution plan without running anything.
 func (r *TextReporter) PrintDryRun(graph *task.Graph, reposDir string) {
 	fmt.Fprint(r.w, "Execution plan (dry-run):\n\n")

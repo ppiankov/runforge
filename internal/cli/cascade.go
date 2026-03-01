@@ -312,6 +312,27 @@ func filterFreeRunners(cascade []string, allowFree bool, profiles map[string]*ta
 	return filtered
 }
 
+// filterSecretAwareRunners removes unsafe runners from fallback positions when
+// the task's repo has secrets. The primary runner (index 0) is never filtered —
+// explicit task.Runner assignment overrides the secret filter.
+func filterSecretAwareRunners(cascade []string, repo string, secretRepos map[string]struct{}) []string {
+	if len(secretRepos) == 0 || len(cascade) <= 1 {
+		return cascade
+	}
+	if _, hasSecrets := secretRepos[repo]; !hasSecrets {
+		return cascade
+	}
+	filtered := []string{cascade[0]}
+	for _, name := range cascade[1:] {
+		if !runner.IsSafeRunner(name) {
+			slog.Warn("removing unsafe runner for repo with secrets", "runner", name, "repo", repo)
+			continue
+		}
+		filtered = append(filtered, name)
+	}
+	return filtered
+}
+
 // resolveRunnerCascade determines the ordered list of runners to try for a task.
 func resolveRunnerCascade(t *task.Task, defaultRunner string, defaultFallbacks []string) []string {
 	primary := t.Runner

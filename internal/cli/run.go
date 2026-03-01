@@ -181,6 +181,9 @@ func runTasks(tasksFile string, workers int, verify bool, reposDir, filter strin
 		}
 	}
 
+	// pre-scan repos for secrets (used by dry-run display and execution filtering)
+	secretRepos := preScanRepos(tasks, reposDir)
+
 	// dry run
 	if dryRun {
 		textRep.PrintHeader(len(tasks)+len(skippedByState), workers)
@@ -202,6 +205,13 @@ func runTasks(tasksFile string, workers int, verify bool, reposDir, filter strin
 			}
 			textRep.PrintModelResolutions(reps)
 		}
+		if len(secretRepos) > 0 {
+			repos := make([]string, 0, len(secretRepos))
+			for r := range secretRepos {
+				repos = append(repos, r)
+			}
+			textRep.PrintSecretRepos(repos)
+		}
 		textRep.PrintDryRun(graph, reposDir)
 		return nil
 	}
@@ -221,6 +231,7 @@ func runTasks(tasksFile string, workers int, verify bool, reposDir, filter strin
 		settings:     cfg,
 		tuiMode:      tuiMode,
 		allowFree:    allowFree,
+		secretRepos:  secretRepos,
 		stateTracker: stateTracker,
 	})
 	if err != nil {
@@ -263,6 +274,7 @@ type execRunConfig struct {
 	settings     *config.Settings                          // runtime settings for limiter etc.
 	tuiMode      string                                    // full, minimal, off, auto
 	allowFree    bool                                      // include free-tier runners in cascade
+	secretRepos  map[string]struct{}                       // repos with secrets detected by pre-scan
 	stateTracker *state.Tracker                            // persistent task state across runs
 	onProgress   func(results map[string]*task.TaskResult) // optional progress callback for sentinel
 }
@@ -382,6 +394,8 @@ func executeRun(cfg execRunConfig) (*execRunResult, error) {
 		}
 	}
 
+	secretRepos := cfg.secretRepos
+
 	// inject commit instructions into all agent-bound prompts (safety net)
 	injectCommitInstructions(cfg.tasks, runners)
 
@@ -408,6 +422,15 @@ func executeRun(cfg execRunConfig) (*execRunResult, error) {
 		cascade = filterDataCollectionRunners(cascade, t.Repo, tf.Runners, privateRepos)
 		cascade = filterGraylistedRunners(cascade, graylist, tf.Runners)
 		cascade = filterFreeRunners(cascade, cfg.allowFree, tf.Runners)
+		cascade = filterSecretAwareRunners(cascade, t.Repo, secretRepos)
+		if len(cascade) == 0 {
+			return &task.TaskResult{
+				TaskID:  t.ID,
+				State:   task.StateFailed,
+				Error:   "no safe runners available for repo with secrets",
+				EndedAt: time.Now(),
+			}
+		}
 		result := RunWithCascade(ctx, t, repoDir, outputDir, runners, cascade, cfg.maxRuntime, blacklist, graylist, limiter)
 
 		// update persistent state with final result
@@ -690,6 +713,29 @@ func stripeRunners(tasks []task.Task, defaultRunner string, fallbacks []string) 
 		}
 		tasks[i].Fallbacks = fb
 	}
+}
+
+// preScanRepos runs pastewatch-cli secret detection on each unique repo.
+// Returns a set of repos where secrets were detected.
+func preScanRepos(tasks []task.Task, reposDir string) map[string]struct{} {
+	repos := collectRepos(tasks)
+	secretRepos := make(map[string]struct{})
+	ctx := context.Background()
+	for _, repo := range repos {
+		repoPath := filepath.Join(reposDir, repo)
+		found, err := runner.PreScan(ctx, repoPath)
+		if err != nil {
+			slog.Warn("pre-scan error", "repo", repo, "error", err)
+			continue
+		}
+		if found {
+			secretRepos[repo] = struct{}{}
+		}
+	}
+	if len(secretRepos) > 0 {
+		slog.Warn("repos with secrets detected", "count", len(secretRepos))
+	}
+	return secretRepos
 }
 
 func collectRepos(tasks []task.Task) []string {
