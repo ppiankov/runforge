@@ -233,6 +233,9 @@ func (r *TextReporter) PrintDryRun(graph *task.Graph, reposDir string) {
 			dep = fmt.Sprintf(" (after %s)", strings.Join(t.DependsOn, ", "))
 		}
 		fmt.Fprintf(r.w, "  %d. [P%d] %s — %s%s\n", i+1, t.Priority, id, t.Title, dep)
+		if t.Difficulty != "" {
+			fmt.Fprintf(r.w, "     difficulty: %s (score: %d)\n", t.Difficulty, t.Score)
+		}
 		fmt.Fprintf(r.w, "     repo: %s\n", t.Repo)
 		// truncate prompt to first 100 chars
 		prompt := t.Prompt

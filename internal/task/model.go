@@ -49,6 +49,8 @@ type Task struct {
 	Prompt     string   `json:"prompt"`
 	Runner     string   `json:"runner,omitempty"`      // default: from TaskFile.DefaultRunner
 	Fallbacks  []string `json:"fallbacks,omitempty"`   // runner profiles to try on failure/rate-limit
+	Difficulty string   `json:"difficulty,omitempty"`  // "simple", "medium", "complex"
+	Score      int      `json:"score,omitempty"`       // numeric difficulty score
 	SourceFile string   `json:"source_file,omitempty"` // populated during multi-file load
 }
 
@@ -100,6 +102,7 @@ type RunnerProfileConfig struct {
 	Env            map[string]string `json:"env,omitempty"`             // env overrides; "env:VAR" = read from OS
 	DataCollection bool              `json:"data_collection,omitempty"` // true = prompts may be used for model training
 	Free           bool              `json:"free,omitempty"`            // true = free-tier model, excluded from cascade by default
+	Tier           int               `json:"tier,omitempty"`            // 1=complex-capable, 2=medium, 3=simple-only; 0=use default
 }
 
 // TaskFile is the top-level structure of the tasks JSON file.

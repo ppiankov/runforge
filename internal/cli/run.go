@@ -427,6 +427,7 @@ func executeRun(cfg execRunConfig) (*execRunResult, error) {
 		cascade = filterGraylistedRunners(cascade, graylist, tf.Runners)
 		cascade = filterFreeRunners(cascade, cfg.allowFree, tf.Runners)
 		cascade = filterSecretAwareRunners(cascade, t.Repo, secretRepos)
+		cascade = filterByTier(cascade, t.Difficulty, tf.Runners)
 		if len(cascade) == 0 {
 			return &task.TaskResult{
 				TaskID:  t.ID,
@@ -700,6 +701,7 @@ func mergeSettings(tf *task.TaskFile, cfg *config.Settings) {
 					Env:            rp.Env,
 					DataCollection: rp.DataCollection,
 					Free:           rp.Free,
+					Tier:           rp.Tier,
 				}
 			}
 		}

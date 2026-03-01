@@ -841,3 +841,148 @@ func TestAutoGraylist_GraylistsWithModel(t *testing.T) {
 		t.Fatal("auto-graylist should not block other models")
 	}
 }
+
+func TestFilterByTier_SimpleAllowsAll(t *testing.T) {
+	profiles := map[string]*task.RunnerProfileConfig{
+		"codex":  {Type: "codex"},
+		"gemini": {Type: "gemini"},
+		"qwen":   {Type: "qwen"},
+	}
+	cascade := []string{"codex", "gemini", "qwen"}
+	result := filterByTier(cascade, task.DifficultySimple, profiles)
+
+	if fmt.Sprintf("%v", result) != fmt.Sprintf("%v", cascade) {
+		t.Fatalf("simple difficulty should allow all tiers, got %v", result)
+	}
+}
+
+func TestFilterByTier_MediumFiltersTier3(t *testing.T) {
+	profiles := map[string]*task.RunnerProfileConfig{
+		"codex":  {Type: "codex"},
+		"gemini": {Type: "gemini"},
+		"qwen":   {Type: "qwen"},
+	}
+	cascade := []string{"codex", "gemini", "qwen"}
+	result := filterByTier(cascade, task.DifficultyMedium, profiles)
+
+	expected := []string{"codex", "gemini"}
+	if fmt.Sprintf("%v", result) != fmt.Sprintf("%v", expected) {
+		t.Fatalf("medium difficulty should filter tier 3, expected %v, got %v", expected, result)
+	}
+}
+
+func TestFilterByTier_ComplexOnlyTier1(t *testing.T) {
+	profiles := map[string]*task.RunnerProfileConfig{
+		"codex":  {Type: "codex"},
+		"gemini": {Type: "gemini"},
+		"qwen":   {Type: "qwen"},
+	}
+	cascade := []string{"codex", "gemini", "qwen"}
+	result := filterByTier(cascade, task.DifficultyComplex, profiles)
+
+	expected := []string{"codex"}
+	if fmt.Sprintf("%v", result) != fmt.Sprintf("%v", expected) {
+		t.Fatalf("complex difficulty should only keep tier 1, expected %v, got %v", expected, result)
+	}
+}
+
+func TestFilterByTier_PrimaryAlwaysKept(t *testing.T) {
+	profiles := map[string]*task.RunnerProfileConfig{
+		"qwen":  {Type: "qwen"},
+		"codex": {Type: "codex"},
+	}
+	// qwen (tier 3) is primary — should be kept even for complex tasks
+	cascade := []string{"qwen", "codex"}
+	result := filterByTier(cascade, task.DifficultyComplex, profiles)
+
+	expected := []string{"qwen", "codex"}
+	if fmt.Sprintf("%v", result) != fmt.Sprintf("%v", expected) {
+		t.Fatalf("primary runner should always be kept, expected %v, got %v", expected, result)
+	}
+}
+
+func TestFilterByTier_EmptyDifficulty(t *testing.T) {
+	profiles := map[string]*task.RunnerProfileConfig{
+		"codex": {Type: "codex"},
+		"qwen":  {Type: "qwen"},
+	}
+	cascade := []string{"codex", "qwen"}
+	result := filterByTier(cascade, "", profiles)
+
+	if fmt.Sprintf("%v", result) != fmt.Sprintf("%v", cascade) {
+		t.Fatalf("empty difficulty should not filter, got %v", result)
+	}
+}
+
+func TestFilterByTier_CustomTierOverride(t *testing.T) {
+	profiles := map[string]*task.RunnerProfileConfig{
+		"codex":     {Type: "codex"},
+		"qwen-pro":  {Type: "qwen", Tier: 1}, // override: promoted to tier 1
+		"qwen-free": {Type: "qwen"},          // default tier 3
+	}
+	cascade := []string{"codex", "qwen-pro", "qwen-free"}
+	result := filterByTier(cascade, task.DifficultyComplex, profiles)
+
+	expected := []string{"codex", "qwen-pro"}
+	if fmt.Sprintf("%v", result) != fmt.Sprintf("%v", expected) {
+		t.Fatalf("custom tier override should be respected, expected %v, got %v", expected, result)
+	}
+}
+
+func TestFilterByTier_SingleRunner(t *testing.T) {
+	cascade := []string{"codex"}
+	result := filterByTier(cascade, task.DifficultyComplex, nil)
+
+	if len(result) != 1 || result[0] != "codex" {
+		t.Fatalf("single runner should pass through, got %v", result)
+	}
+}
+
+func TestResolveTier_Defaults(t *testing.T) {
+	profiles := map[string]*task.RunnerProfileConfig{
+		"codex":  {Type: "codex"},
+		"gemini": {Type: "gemini"},
+		"qwen":   {Type: "qwen"},
+	}
+
+	if tier := resolveTier("codex", profiles); tier != 1 {
+		t.Errorf("codex should be tier 1, got %d", tier)
+	}
+	if tier := resolveTier("gemini", profiles); tier != 2 {
+		t.Errorf("gemini should be tier 2, got %d", tier)
+	}
+	if tier := resolveTier("qwen", profiles); tier != 3 {
+		t.Errorf("qwen should be tier 3, got %d", tier)
+	}
+}
+
+func TestResolveTier_NoProfile(t *testing.T) {
+	// runner not in profiles — falls back to DefaultTier(name)
+	if tier := resolveTier("claude", nil); tier != 1 {
+		t.Errorf("claude without profile should be tier 1, got %d", tier)
+	}
+	if tier := resolveTier("unknown", nil); tier != 3 {
+		t.Errorf("unknown runner should be tier 3, got %d", tier)
+	}
+}
+
+func TestMergeSettings_CopiesTierField(t *testing.T) {
+	tf := &task.TaskFile{
+		Tasks: []task.Task{{ID: "t1", Repo: "r", Prompt: "p"}},
+	}
+	cfg := &config.Settings{
+		Runners: map[string]*config.RunnerProfile{
+			"qwen-pro": {Type: "qwen", Tier: 1},
+			"gemini":   {Type: "gemini"},
+		},
+	}
+
+	mergeSettings(tf, cfg)
+
+	if tf.Runners["qwen-pro"].Tier != 1 {
+		t.Fatal("Tier field should be copied from settings")
+	}
+	if tf.Runners["gemini"].Tier != 0 {
+		t.Fatal("default tier (0) should not be modified")
+	}
+}

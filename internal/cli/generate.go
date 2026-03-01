@@ -122,13 +122,16 @@ func generateTasks(reposDir, output, owner, filterRepo, defaultRunner string, cf
 				prompt += "\n\n" + cfg.PromptConventions
 			}
 
+			score, difficulty := task.ScoreTask(wo.Title, prompt, len(wo.Acceptance))
 			t := task.Task{
-				ID:       generate.TaskID(repoName, wo.RawID),
-				Repo:     repoSlug,
-				Priority: wo.Priority,
-				Title:    wo.Title,
-				Prompt:   prompt,
-				Runner:   defaultRunner,
+				ID:         generate.TaskID(repoName, wo.RawID),
+				Repo:       repoSlug,
+				Priority:   wo.Priority,
+				Title:      wo.Title,
+				Prompt:     prompt,
+				Runner:     defaultRunner,
+				Difficulty: difficulty,
+				Score:      score,
 			}
 
 			// Only set depends_on if the target task is also included (not done).

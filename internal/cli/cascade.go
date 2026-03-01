@@ -339,6 +339,40 @@ func filterSecretAwareRunners(cascade []string, repo string, secretRepos map[str
 	return filtered
 }
 
+// filterByTier removes runners from fallback positions that lack the capability
+// tier required by the task's difficulty. The primary runner (index 0) is never
+// filtered — explicit task.Runner assignment overrides tier. When difficulty is
+// empty, no filtering is applied.
+func filterByTier(cascade []string, difficulty string, profiles map[string]*task.RunnerProfileConfig) []string {
+	if difficulty == "" || len(cascade) <= 1 {
+		return cascade
+	}
+	minTier := task.MinTier(difficulty)
+	filtered := []string{cascade[0]}
+	for _, name := range cascade[1:] {
+		tier := resolveTier(name, profiles)
+		if tier > minTier {
+			slog.Debug("runner below required tier, removing from fallbacks",
+				"runner", name, "tier", tier, "required", minTier, "difficulty", difficulty)
+			continue
+		}
+		filtered = append(filtered, name)
+	}
+	return filtered
+}
+
+// resolveTier determines the effective tier for a runner. Uses profile.Tier if
+// set, otherwise falls back to DefaultTier(profile.Type), then DefaultTier(name).
+func resolveTier(name string, profiles map[string]*task.RunnerProfileConfig) int {
+	if p, ok := profiles[name]; ok {
+		if p.Tier > 0 {
+			return p.Tier
+		}
+		return task.DefaultTier(p.Type)
+	}
+	return task.DefaultTier(name)
+}
+
 // resolveRunnerCascade determines the ordered list of runners to try for a task.
 func resolveRunnerCascade(t *task.Task, defaultRunner string, defaultFallbacks []string) []string {
 	primary := t.Runner
