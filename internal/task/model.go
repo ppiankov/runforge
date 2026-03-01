@@ -99,6 +99,7 @@ type RunnerProfileConfig struct {
 	Profile        string            `json:"profile,omitempty"`         // codex --profile name (references config.toml)
 	Env            map[string]string `json:"env,omitempty"`             // env overrides; "env:VAR" = read from OS
 	DataCollection bool              `json:"data_collection,omitempty"` // true = prompts may be used for model training
+	Free           bool              `json:"free,omitempty"`            // true = free-tier model, excluded from cascade by default
 }
 
 // TaskFile is the top-level structure of the tasks JSON file.

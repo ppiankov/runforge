@@ -294,6 +294,24 @@ func filterGraylistedRunners(cascade []string, graylist *runner.RunnerGraylist, 
 	return filtered
 }
 
+// filterFreeRunners removes free-tier runners from fallback positions in the
+// cascade. The primary runner (index 0) is never filtered — explicit task.Runner
+// assignment overrides the free filter. When allowFree is true, all runners pass.
+func filterFreeRunners(cascade []string, allowFree bool, profiles map[string]*task.RunnerProfileConfig) []string {
+	if allowFree || len(cascade) <= 1 {
+		return cascade
+	}
+	filtered := []string{cascade[0]}
+	for _, name := range cascade[1:] {
+		if p, ok := profiles[name]; ok && p.Free {
+			slog.Debug("free-tier runner excluded from fallbacks", "runner", name)
+			continue
+		}
+		filtered = append(filtered, name)
+	}
+	return filtered
+}
+
 // resolveRunnerCascade determines the ordered list of runners to try for a task.
 func resolveRunnerCascade(t *task.Task, defaultRunner string, defaultFallbacks []string) []string {
 	primary := t.Runner

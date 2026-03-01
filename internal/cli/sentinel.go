@@ -87,5 +87,7 @@ in processing/ are recovered to failed/.`,
 	cmd.Flags().DurationVar(&maxRuntime, "max-runtime", 30*time.Minute, "per-WO execution timeout")
 	cmd.Flags().DurationVar(&idleTimeout, "idle-timeout", 5*time.Minute, "idle timeout for runner")
 
+	cmd.AddCommand(newSentinelLoopCmd())
+
 	return cmd
 }

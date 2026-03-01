@@ -680,6 +680,65 @@ func TestBuildRunnerRegistry_WithProfile(t *testing.T) {
 	}
 }
 
+func TestFilterFreeRunners_ExcludesByDefault(t *testing.T) {
+	profiles := map[string]*task.RunnerProfileConfig{
+		"minimax-free": {Type: "opencode", Free: true},
+		"deepseek":     {Type: "opencode", Free: true},
+		"claude":       {Type: "claude"},
+	}
+	cascade := []string{"codex", "minimax-free", "claude", "deepseek"}
+	result := filterFreeRunners(cascade, false, profiles)
+
+	expected := []string{"codex", "claude"}
+	if fmt.Sprintf("%v", result) != fmt.Sprintf("%v", expected) {
+		t.Fatalf("expected %v, got %v", expected, result)
+	}
+}
+
+func TestFilterFreeRunners_AllowFreePassesThrough(t *testing.T) {
+	profiles := map[string]*task.RunnerProfileConfig{
+		"minimax-free": {Type: "opencode", Free: true},
+	}
+	cascade := []string{"codex", "minimax-free", "claude"}
+	result := filterFreeRunners(cascade, true, profiles)
+
+	if fmt.Sprintf("%v", result) != fmt.Sprintf("%v", cascade) {
+		t.Fatalf("allowFree should pass all through, got %v", result)
+	}
+}
+
+func TestFilterFreeRunners_PrimaryKeepsEvenIfFree(t *testing.T) {
+	profiles := map[string]*task.RunnerProfileConfig{
+		"minimax-free": {Type: "opencode", Free: true},
+	}
+	cascade := []string{"minimax-free", "claude"}
+	result := filterFreeRunners(cascade, false, profiles)
+
+	// primary always passes, even if marked free
+	expected := []string{"minimax-free", "claude"}
+	if fmt.Sprintf("%v", result) != fmt.Sprintf("%v", expected) {
+		t.Fatalf("expected %v, got %v", expected, result)
+	}
+}
+
+func TestFilterFreeRunners_SingleRunner(t *testing.T) {
+	cascade := []string{"codex"}
+	result := filterFreeRunners(cascade, false, nil)
+
+	if len(result) != 1 || result[0] != "codex" {
+		t.Fatalf("single runner should pass through, got %v", result)
+	}
+}
+
+func TestFilterFreeRunners_NilProfiles(t *testing.T) {
+	cascade := []string{"codex", "claude"}
+	result := filterFreeRunners(cascade, false, nil)
+
+	if fmt.Sprintf("%v", result) != fmt.Sprintf("%v", cascade) {
+		t.Fatalf("nil profiles should pass through, got %v", result)
+	}
+}
+
 func TestInjectCommitInstructions_AgentTasks(t *testing.T) {
 	runners := map[string]runner.Runner{
 		"codex":  runner.NewCodexRunner(0),

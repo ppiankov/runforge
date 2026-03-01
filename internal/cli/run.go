@@ -36,6 +36,7 @@ func newRunCmd() *cobra.Command {
 		idleTimeout time.Duration
 		failFast    bool
 		tuiMode     string
+		allowFree   bool
 	)
 
 	cmd := &cobra.Command{
@@ -64,7 +65,7 @@ func newRunCmd() *cobra.Command {
 			if !cmd.Flags().Changed("verify") && cfg.Verify {
 				verify = cfg.Verify
 			}
-			return runTasks(tasksFile, workers, verify, reposDir, filter, dryRun, maxRuntime, idleTimeout, failFast, tuiMode, cfg)
+			return runTasks(tasksFile, workers, verify, reposDir, filter, dryRun, maxRuntime, idleTimeout, failFast, tuiMode, allowFree, cfg)
 		},
 	}
 
@@ -78,11 +79,12 @@ func newRunCmd() *cobra.Command {
 	cmd.Flags().DurationVar(&idleTimeout, "idle-timeout", 5*time.Minute, "kill task after no stdout for this duration")
 	cmd.Flags().BoolVar(&failFast, "fail-fast", false, "stop spawning new tasks on first failure")
 	cmd.Flags().StringVar(&tuiMode, "tui", "auto", "display mode: full (interactive TUI), minimal (live status), off (no live display), auto (detect TTY)")
+	cmd.Flags().BoolVar(&allowFree, "allow-free", false, "include free-tier runners in fallback cascade")
 
 	return cmd
 }
 
-func runTasks(tasksFile string, workers int, verify bool, reposDir, filter string, dryRun bool, maxRuntime, idleTimeout time.Duration, failFast bool, tuiMode string, cfg *config.Settings) error {
+func runTasks(tasksFile string, workers int, verify bool, reposDir, filter string, dryRun bool, maxRuntime, idleTimeout time.Duration, failFast bool, tuiMode string, allowFree bool, cfg *config.Settings) error {
 	// resolve glob pattern to concrete file paths
 	paths, err := config.ResolveGlob(tasksFile)
 	if err != nil {
@@ -191,6 +193,7 @@ func runTasks(tasksFile string, workers int, verify bool, reposDir, filter strin
 		postRun:     cfg.PostRun,
 		settings:    cfg,
 		tuiMode:     tuiMode,
+		allowFree:   allowFree,
 	})
 	if err != nil {
 		return err
@@ -227,10 +230,12 @@ type execRunConfig struct {
 	maxRuntime  time.Duration
 	idleTimeout time.Duration
 	failFast    bool
-	parentRunID string           // links rerun to original run
-	postRun     string           // shell command to run after report is written
-	settings    *config.Settings // runtime settings for limiter etc.
-	tuiMode     string           // full, minimal, off, auto
+	parentRunID string                                    // links rerun to original run
+	postRun     string                                    // shell command to run after report is written
+	settings    *config.Settings                          // runtime settings for limiter etc.
+	tuiMode     string                                    // full, minimal, off, auto
+	allowFree   bool                                      // include free-tier runners in cascade
+	onProgress  func(results map[string]*task.TaskResult) // optional progress callback for sentinel
 }
 
 // execRunResult wraps the report and run directory.
@@ -261,6 +266,10 @@ func executeRun(cfg execRunConfig) (*execRunResult, error) {
 	runDir := filepath.Join(".runforge", time.Now().Format("20060102-150405"))
 	if err := os.MkdirAll(runDir, 0o755); err != nil {
 		return nil, fmt.Errorf("create run dir: %w", err)
+	}
+
+	if cfg.allowFree {
+		slog.Warn("free-tier models enabled — quality may vary")
 	}
 
 	slog.Info("starting run", "tasks", len(cfg.tasks), "workers", cfg.workers, "run_dir", runDir)
@@ -364,6 +373,7 @@ func executeRun(cfg execRunConfig) (*execRunResult, error) {
 		cascade := resolveRunnerCascade(t, defaultRunner, tf.DefaultFallbacks)
 		cascade = filterDataCollectionRunners(cascade, t.Repo, tf.Runners, privateRepos)
 		cascade = filterGraylistedRunners(cascade, graylist, tf.Runners)
+		cascade = filterFreeRunners(cascade, cfg.allowFree, tf.Runners)
 		return RunWithCascade(ctx, t, repoDir, outputDir, runners, cascade, cfg.maxRuntime, blacklist, graylist, limiter)
 	}
 
@@ -379,6 +389,9 @@ func executeRun(cfg execRunConfig) (*execRunResult, error) {
 		OnUpdate: func(id string, result *task.TaskResult) {
 			slog.Debug("task update", "task", id, "state", result.State)
 			writeStatusFile(len(cfg.tasks), sched.Results())
+			if cfg.onProgress != nil {
+				cfg.onProgress(sched.Results())
+			}
 			if reviewPool != nil && result.State == task.StateCompleted {
 				t := cfg.graph.Task(id)
 				if t != nil {
