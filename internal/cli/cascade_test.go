@@ -4,7 +4,9 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -584,7 +586,8 @@ func TestFilterGraylistedRunners_ModelAware(t *testing.T) {
 
 func TestIsFalsePositive_EmptyDir(t *testing.T) {
 	dir := t.TempDir()
-	if !isFalsePositive(dir) {
+	// no git repo, no events → false positive
+	if !isFalsePositive(dir, dir, "") {
 		t.Fatal("empty dir should be false positive")
 	}
 }
@@ -592,7 +595,7 @@ func TestIsFalsePositive_EmptyDir(t *testing.T) {
 func TestIsFalsePositive_EmptyEventsFile(t *testing.T) {
 	dir := t.TempDir()
 	_ = os.WriteFile(filepath.Join(dir, "events.jsonl"), []byte(""), 0o644)
-	if !isFalsePositive(dir) {
+	if !isFalsePositive(dir, dir, "") {
 		t.Fatal("empty events.jsonl should be false positive")
 	}
 }
@@ -600,7 +603,7 @@ func TestIsFalsePositive_EmptyEventsFile(t *testing.T) {
 func TestIsFalsePositive_WithEvents(t *testing.T) {
 	dir := t.TempDir()
 	_ = os.WriteFile(filepath.Join(dir, "events.jsonl"), []byte(`{"type":"text","part":{"text":"hello"}}`+"\n"), 0o644)
-	if isFalsePositive(dir) {
+	if isFalsePositive(dir, dir, "") {
 		t.Fatal("non-empty events.jsonl should not be false positive")
 	}
 }
@@ -610,8 +613,47 @@ func TestIsFalsePositive_AttemptSubdir(t *testing.T) {
 	attemptDir := filepath.Join(dir, "attempt-2-claude")
 	_ = os.MkdirAll(attemptDir, 0o755)
 	_ = os.WriteFile(filepath.Join(attemptDir, "events.jsonl"), []byte(`{"type":"text"}`+"\n"), 0o644)
-	if isFalsePositive(dir) {
+	if isFalsePositive(dir, dir, "") {
 		t.Fatal("events in attempt subdir should not be false positive")
+	}
+}
+
+func TestIsFalsePositive_GitCommitDetection(t *testing.T) {
+	// create a temp git repo
+	repoDir := t.TempDir()
+	runGit := func(args ...string) {
+		cmd := exec.Command("git", args...)
+		cmd.Dir = repoDir
+		cmd.Env = append(os.Environ(),
+			"GIT_AUTHOR_NAME=test",
+			"GIT_AUTHOR_EMAIL=test@test.com",
+			"GIT_COMMITTER_NAME=test",
+			"GIT_COMMITTER_EMAIL=test@test.com",
+		)
+		if out, err := cmd.CombinedOutput(); err != nil {
+			t.Fatalf("git %v failed: %s", args, out)
+		}
+	}
+	runGit("init")
+	_ = os.WriteFile(filepath.Join(repoDir, "file.txt"), []byte("initial"), 0o644)
+	runGit("add", ".")
+	runGit("commit", "-m", "initial")
+
+	headBefore := gitHead(repoDir)
+	outputDir := t.TempDir()
+
+	// no new commit, no events → false positive
+	if !isFalsePositive(outputDir, repoDir, headBefore) {
+		t.Fatal("no new commits and no events should be false positive")
+	}
+
+	// make a new commit → not a false positive (even without events)
+	_ = os.WriteFile(filepath.Join(repoDir, "file.txt"), []byte("changed"), 0o644)
+	runGit("add", ".")
+	runGit("commit", "-m", "task work")
+
+	if isFalsePositive(outputDir, repoDir, headBefore) {
+		t.Fatal("new commit should not be false positive even without events")
 	}
 }
 
@@ -635,5 +677,47 @@ func TestBuildRunnerRegistry_WithProfile(t *testing.T) {
 	}
 	if _, ok := reg["codex"]; !ok {
 		t.Fatal("expected codex runner still in registry")
+	}
+}
+
+func TestInjectCommitInstructions_AgentTasks(t *testing.T) {
+	runners := map[string]runner.Runner{
+		"codex":  runner.NewCodexRunner(0),
+		"claude": runner.NewClaudeRunner(0),
+		"script": runner.NewScriptRunner(),
+	}
+	tasks := []task.Task{
+		{ID: "t1", Runner: "codex", Prompt: "fix the bug"},
+		{ID: "t2", Runner: "claude", Prompt: "add tests"},
+		{ID: "t3", Runner: "script", Prompt: "make test"},
+	}
+	injectCommitInstructions(tasks, runners)
+
+	// agent tasks get commit instruction
+	if !strings.Contains(tasks[0].Prompt, "MUST commit") {
+		t.Error("expected commit instruction in codex task")
+	}
+	if !strings.Contains(tasks[1].Prompt, "MUST commit") {
+		t.Error("expected commit instruction in claude task")
+	}
+	// script tasks are untouched
+	if strings.Contains(tasks[2].Prompt, "MUST commit") {
+		t.Error("script task should not get commit instruction")
+	}
+}
+
+func TestInjectCommitInstructions_SkipsDuplicate(t *testing.T) {
+	runners := map[string]runner.Runner{
+		"codex": runner.NewCodexRunner(0),
+	}
+	tasks := []task.Task{
+		{ID: "t1", Runner: "codex", Prompt: "fix bug. You MUST commit your changes."},
+	}
+	original := tasks[0].Prompt
+	injectCommitInstructions(tasks, runners)
+
+	// should not double-inject
+	if tasks[0].Prompt != original {
+		t.Error("should not inject when prompt already contains MUST commit")
 	}
 }

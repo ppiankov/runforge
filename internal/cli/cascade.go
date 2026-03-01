@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log/slog"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"time"
@@ -75,6 +76,9 @@ func RunWithCascade(
 			}
 		}
 
+		// capture HEAD before run so we can detect new commits
+		headBefore := gitHead(repoDir)
+
 		if limiter != nil {
 			limiter.Acquire(name)
 		}
@@ -107,9 +111,9 @@ func RunWithCascade(
 		case task.StateCompleted:
 			result.RunnerUsed = name
 			result.Attempts = attempts
-			if isFalsePositive(attemptDir) {
+			if isFalsePositive(attemptDir, repoDir, headBefore) {
 				result.FalsePositive = true
-				slog.Warn("false positive: completed with 0 events",
+				slog.Warn("false positive: no new commits after task completion",
 					"task", t.ID, "runner", name)
 			}
 			return result
@@ -315,7 +319,37 @@ func resolveRunnerCascade(t *task.Task, defaultRunner string, defaultFallbacks [
 // isFalsePositive checks whether a completed task actually produced work.
 // Returns true if events.jsonl is missing or contains 0 non-empty lines.
 // This is a fast, synchronous check called immediately after task completion.
-func isFalsePositive(outputDir string) bool {
+// isFalsePositive checks whether a completed task actually did real work.
+// Primary signal: git commits (HEAD moved). Fallback: events.jsonl non-empty.
+// Returns true if neither signal indicates real work was done.
+func isFalsePositive(outputDir, repoDir, headBefore string) bool {
+	// primary check: did the agent create new commits?
+	if headBefore != "" {
+		headAfter := gitHead(repoDir)
+		if headAfter != "" && headAfter != headBefore {
+			return false // HEAD moved = real commits = real work
+		}
+	}
+
+	// fallback: check events.jsonl for any output
+	return !hasEvents(outputDir)
+}
+
+// gitHead returns the current HEAD SHA for a repo, or empty on error.
+func gitHead(repoDir string) string {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, "git", "rev-parse", "HEAD")
+	cmd.Dir = repoDir
+	out, err := cmd.Output()
+	if err != nil {
+		return ""
+	}
+	return strings.TrimSpace(string(out))
+}
+
+// hasEvents checks whether the output directory contains a non-empty events.jsonl.
+func hasEvents(outputDir string) bool {
 	eventsPath := filepath.Join(outputDir, "events.jsonl")
 	if _, err := os.Stat(eventsPath); err != nil {
 		// check attempt subdirectories
@@ -333,15 +367,15 @@ func isFalsePositive(outputDir string) bool {
 
 	f, err := os.Open(eventsPath)
 	if err != nil {
-		return true // no events file = no work
+		return false
 	}
 	defer func() { _ = f.Close() }()
 
 	scanner := bufio.NewScanner(f)
 	for scanner.Scan() {
 		if strings.TrimSpace(scanner.Text()) != "" {
-			return false // at least one event = real work
+			return true
 		}
 	}
-	return true // 0 events = false positive
+	return false
 }

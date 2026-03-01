@@ -344,6 +344,9 @@ func executeRun(cfg execRunConfig) (*execRunResult, error) {
 		}
 	}
 
+	// inject commit instructions into all agent-bound prompts (safety net)
+	injectCommitInstructions(cfg.tasks, runners)
+
 	execFn := func(ctx context.Context, t *task.Task, repoDir, outputDir string) *task.TaskResult {
 		if err := runner.WaitAndAcquire(ctx, repoDir, t.ID); err != nil {
 			return &task.TaskResult{
@@ -764,6 +767,31 @@ func autoGraylistRunners(results map[string]*task.TaskResult, graylist *runner.R
 		}
 	}
 	fmt.Fprintf(os.Stdout, "  Use 'runforge graylist list' to view, 'runforge graylist remove <runner>' to reinstate\n")
+}
+
+// commitInstruction is appended to all agent-bound prompts to ensure agents
+// commit their work. This is a safety net — skill files may or may not be
+// deployed to every repo, but this instruction is always injected at runtime.
+const commitInstruction = "\n\nIMPORTANT: After completing all changes, you MUST commit your work. " +
+	"Run `git add` for changed files and `git commit` with a conventional commit message " +
+	"(e.g. feat:, fix:, refactor:). A task is NOT complete until changes are committed."
+
+// injectCommitInstructions appends commit enforcement to all agent-bound task
+// prompts. Script runner tasks are skipped since their prompts are shell commands.
+func injectCommitInstructions(tasks []task.Task, runners map[string]runner.Runner) {
+	for i := range tasks {
+		// skip script runner tasks — their prompts are shell commands, not agent instructions
+		if r, ok := runners[tasks[i].Runner]; ok {
+			if _, isScript := r.(*runner.ScriptRunner); isScript {
+				continue
+			}
+		}
+		// skip if prompt already contains commit instruction (e.g. from prompt_conventions)
+		if strings.Contains(tasks[i].Prompt, "MUST commit") {
+			continue
+		}
+		tasks[i].Prompt += commitInstruction
+	}
 }
 
 // writeTaskMeta saves a task's metadata (id, repo, prompt, runner) to the output dir
