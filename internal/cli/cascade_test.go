@@ -780,3 +780,43 @@ func TestInjectCommitInstructions_SkipsDuplicate(t *testing.T) {
 		t.Error("should not inject when prompt already contains MUST commit")
 	}
 }
+
+func TestAutoGraylist_SkipsEmptyModel(t *testing.T) {
+	gl := runner.NewRunnerGraylist()
+	// runner with no model in profile → empty model
+	profiles := map[string]*task.RunnerProfileConfig{
+		"codex": {Type: "codex"}, // no Model field
+	}
+	results := map[string]*task.TaskResult{
+		"t1": {TaskID: "t1", State: task.StateCompleted, FalsePositive: true, RunnerUsed: "codex"},
+	}
+	autoGraylistRunners(results, gl, profiles, "test-run")
+
+	// should NOT create wildcard entry — empty model is refused
+	if gl.IsGraylisted("codex", "") {
+		t.Fatal("auto-graylist should not create wildcard entry when model is empty")
+	}
+	if gl.IsGraylisted("codex", "some-model") {
+		t.Fatal("auto-graylist should not block other models via wildcard")
+	}
+}
+
+func TestAutoGraylist_GraylistsWithModel(t *testing.T) {
+	gl := runner.NewRunnerGraylist()
+	profiles := map[string]*task.RunnerProfileConfig{
+		"deepseek": {Type: "opencode", Model: "deepseek-chat"},
+	}
+	results := map[string]*task.TaskResult{
+		"t1": {TaskID: "t1", State: task.StateCompleted, FalsePositive: true, RunnerUsed: "deepseek"},
+	}
+	autoGraylistRunners(results, gl, profiles, "test-run")
+
+	// should graylist the specific model
+	if !gl.IsGraylisted("deepseek", "deepseek-chat") {
+		t.Fatal("auto-graylist should add runner:model entry")
+	}
+	// should NOT block other models of the same runner
+	if gl.IsGraylisted("deepseek", "deepseek-reasoner") {
+		t.Fatal("auto-graylist should not block other models")
+	}
+}

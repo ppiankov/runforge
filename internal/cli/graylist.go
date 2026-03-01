@@ -81,7 +81,7 @@ func newGraylistAddCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "add <runner>",
 		Short: "Add a runner to the graylist (remove from fallback cascades)",
-		Long:  "Add a runner+model pair to the graylist. Use --model to target a specific model.\nOmit --model to block all models for that runner.",
+		Long:  "Add a runner+model pair to the graylist. Use --model to target a specific model.\nOmit --model to block ALL models for that runner (use with caution — prefer targeting a specific model).",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			gl := runner.LoadGraylist(runner.DefaultGraylistPath())

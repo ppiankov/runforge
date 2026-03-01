@@ -859,11 +859,16 @@ func autoGraylistRunners(results map[string]*task.TaskResult, graylist *runner.R
 
 	fmt.Fprintf(os.Stdout, "\nFalse positives detected:\n")
 	for k, count := range counts {
-		reason := fmt.Sprintf("false positive: %d tasks with 0 events in run %s", count, runID)
-		label := k.runner
-		if k.model != "" {
-			label = k.runner + " (model: " + k.model + ")"
+		// refuse to auto-graylist with empty model — wildcard would block entire provider
+		if k.model == "" {
+			slog.Warn("skipping auto-graylist: no model in runner profile",
+				"runner", k.runner, "false_positives", count)
+			fmt.Fprintf(os.Stdout, "  %s: %d false positives but no model in profile — add model to runner profile for auto-graylist\n",
+				k.runner, count)
+			continue
 		}
+		reason := fmt.Sprintf("false positive: %d tasks with 0 events in run %s", count, runID)
+		label := k.runner + " (model: " + k.model + ")"
 		if !graylist.IsGraylisted(k.runner, k.model) {
 			graylist.Add(k.runner, k.model, reason)
 			fmt.Fprintf(os.Stdout, "  graylisted %s (%d tasks, 0 events)\n", label, count)
