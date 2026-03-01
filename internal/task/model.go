@@ -114,6 +114,8 @@ type TaskFile struct {
 	DefaultFallbacks []string                        `json:"default_fallbacks,omitempty"` // applied when task has no fallbacks
 	Runners          map[string]*RunnerProfileConfig `json:"runners,omitempty"`           // named runner profiles
 	Review           *ReviewConfig                   `json:"review,omitempty"`            // auto-review config
+	ParallelRepo     bool                            `json:"parallel_repo,omitempty"`     // enable worktree isolation for same-repo tasks
+	MergeBack        *bool                           `json:"merge_back,omitempty"`        // auto-merge worktree branch; nil=true
 	Tasks            []Task                          `json:"tasks"`
 }
 
@@ -151,6 +153,9 @@ type TaskResult struct {
 	FalsePositive bool `json:"false_positive,omitempty"` // completed with 0 events (no real work)
 	AutoCommitted bool `json:"auto_committed,omitempty"` // runforge committed changes the agent left unstaged
 
+	WorktreeBranch string `json:"worktree_branch,omitempty"` // branch name when worktree isolation used
+	MergeConflict  bool   `json:"merge_conflict,omitempty"`  // FF merge back to main failed
+
 	RunnerUsed string        `json:"runner_used,omitempty"` // profile that produced the final result
 	Attempts   []AttemptInfo `json:"attempts,omitempty"`    // all cascade attempts
 	Review     *ReviewResult `json:"review,omitempty"`      // auto-review result
@@ -182,6 +187,7 @@ type RunReport struct {
 	RateLimited    int                    `json:"rate_limited"`
 	FalsePositives int                    `json:"false_positives,omitempty"`
 	AutoCommits    int                    `json:"auto_commits,omitempty"`
+	MergeConflicts int                    `json:"merge_conflicts,omitempty"`
 	TotalDuration  time.Duration          `json:"total_duration"`
 	ResetsAt       time.Time              `json:"resets_at,omitempty"`
 }

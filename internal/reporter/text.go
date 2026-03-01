@@ -166,6 +166,9 @@ func (r *TextReporter) PrintSummary(report *task.RunReport) {
 	if report.AutoCommits > 0 {
 		fmt.Fprintf(r.w, "%sAuto-committed: %d%s  ", r.c(colorYellow), report.AutoCommits, r.c(colorReset))
 	}
+	if report.MergeConflicts > 0 {
+		fmt.Fprintf(r.w, "%sMerge conflicts: %d%s  ", r.c(colorRed), report.MergeConflicts, r.c(colorReset))
+	}
 	fallbackCount := countFallbacks(report)
 	if fallbackCount > 0 {
 		fmt.Fprintf(r.w, "%sFallback: %d%s  ", r.c(colorYellow), fallbackCount, r.c(colorReset))
@@ -283,6 +286,11 @@ func runnerSuffix(res *task.TaskResult) string {
 	}
 	if res.AutoCommitted {
 		parts = append(parts, "auto-committed")
+	}
+	if res.MergeConflict {
+		parts = append(parts, "merge conflict: "+res.WorktreeBranch)
+	} else if res.WorktreeBranch != "" {
+		parts = append(parts, "branch: "+res.WorktreeBranch)
 	}
 	if res.Review != nil {
 		if res.Review.Passed {

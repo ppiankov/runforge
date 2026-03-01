@@ -33,6 +33,10 @@ type Settings struct {
 	// Conventions appended verbatim to every generated task prompt
 	PromptConventions string `yaml:"prompt_conventions,omitempty"`
 
+	// Worktree-based parallel execution for same-repo tasks
+	ParallelRepo bool  `yaml:"parallel_repo,omitempty"`
+	MergeBack    *bool `yaml:"merge_back,omitempty"` // auto-merge worktree branch; nil=true
+
 	// Scan configuration
 	Scan *ScanConfig `yaml:"scan,omitempty"`
 }

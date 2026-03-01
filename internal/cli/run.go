@@ -40,6 +40,7 @@ func newRunCmd() *cobra.Command {
 		allowFree    bool
 		retry        bool
 		noAutoCommit bool
+		parallelRepo bool
 	)
 
 	cmd := &cobra.Command{
@@ -68,7 +69,7 @@ func newRunCmd() *cobra.Command {
 			if !cmd.Flags().Changed("verify") && cfg.Verify {
 				verify = cfg.Verify
 			}
-			return runTasks(tasksFile, workers, verify, reposDir, filter, dryRun, maxRuntime, idleTimeout, failFast, tuiMode, allowFree, retry, noAutoCommit, cfg)
+			return runTasks(tasksFile, workers, verify, reposDir, filter, dryRun, maxRuntime, idleTimeout, failFast, tuiMode, allowFree, retry, noAutoCommit, parallelRepo, cfg)
 		},
 	}
 
@@ -85,11 +86,12 @@ func newRunCmd() *cobra.Command {
 	cmd.Flags().BoolVar(&allowFree, "allow-free", false, "include free-tier runners in fallback cascade")
 	cmd.Flags().BoolVar(&retry, "retry", false, "re-execute failed and interrupted tasks")
 	cmd.Flags().BoolVar(&noAutoCommit, "no-auto-commit", false, "disable auto-commit of uncommitted changes after task completion")
+	cmd.Flags().BoolVar(&parallelRepo, "parallel-repo", false, "use git worktrees for parallel same-repo task execution")
 
 	return cmd
 }
 
-func runTasks(tasksFile string, workers int, verify bool, reposDir, filter string, dryRun bool, maxRuntime, idleTimeout time.Duration, failFast bool, tuiMode string, allowFree, retry, noAutoCommit bool, cfg *config.Settings) error {
+func runTasks(tasksFile string, workers int, verify bool, reposDir, filter string, dryRun bool, maxRuntime, idleTimeout time.Duration, failFast bool, tuiMode string, allowFree, retry, noAutoCommit, parallelRepo bool, cfg *config.Settings) error {
 	// resolve glob pattern to concrete file paths
 	paths, err := config.ResolveGlob(tasksFile)
 	if err != nil {
@@ -236,6 +238,8 @@ func runTasks(tasksFile string, workers int, verify bool, reposDir, filter strin
 		secretRepos:  secretRepos,
 		stateTracker: stateTracker,
 		noAutoCommit: noAutoCommit,
+		parallelRepo: parallelRepo || (cfg != nil && cfg.ParallelRepo),
+		mergeBack:    resolveMergeBack(tf, cfg),
 	})
 	if err != nil {
 		return err
@@ -279,6 +283,8 @@ type execRunConfig struct {
 	allowFree    bool                                      // include free-tier runners in cascade
 	secretRepos  map[string]struct{}                       // repos with secrets detected by pre-scan
 	noAutoCommit bool                                      // disable auto-commit of uncommitted changes
+	parallelRepo bool                                      // use git worktrees for parallel same-repo execution
+	mergeBack    bool                                      // auto-merge worktree branches back to main
 	stateTracker *state.Tracker                            // persistent task state across runs
 	onProgress   func(results map[string]*task.TaskResult) // optional progress callback for sentinel
 }
@@ -404,15 +410,41 @@ func executeRun(cfg execRunConfig) (*execRunResult, error) {
 	injectCommitInstructions(cfg.tasks, runners)
 
 	execFn := func(ctx context.Context, t *task.Task, repoDir, outputDir string) *task.TaskResult {
-		if err := runner.WaitAndAcquire(ctx, repoDir, t.ID); err != nil {
-			return &task.TaskResult{
-				TaskID:  t.ID,
-				State:   task.StateFailed,
-				Error:   fmt.Sprintf("acquire lock: %v", err),
-				EndedAt: time.Now(),
+		// acquire execution directory: worktree (parallel) or lock (serial)
+		var execDir string
+		var wtBranch string
+		if cfg.parallelRepo {
+			wtDir, branch, wtErr := runner.CreateWorktree(ctx, repoDir, cfg.reposDir, t.ID)
+			if wtErr != nil {
+				slog.Warn("worktree creation failed, falling back to lock",
+					"task", t.ID, "error", wtErr)
+				if err := runner.WaitAndAcquire(ctx, repoDir, t.ID); err != nil {
+					return &task.TaskResult{
+						TaskID:  t.ID,
+						State:   task.StateFailed,
+						Error:   fmt.Sprintf("acquire lock: %v", err),
+						EndedAt: time.Now(),
+					}
+				}
+				defer runner.Release(repoDir)
+				execDir = repoDir
+			} else {
+				defer runner.RemoveWorktree(ctx, repoDir, wtDir)
+				execDir = wtDir
+				wtBranch = branch
 			}
+		} else {
+			if err := runner.WaitAndAcquire(ctx, repoDir, t.ID); err != nil {
+				return &task.TaskResult{
+					TaskID:  t.ID,
+					State:   task.StateFailed,
+					Error:   fmt.Sprintf("acquire lock: %v", err),
+					EndedAt: time.Now(),
+				}
+			}
+			defer runner.Release(repoDir)
+			execDir = repoDir
 		}
-		defer runner.Release(repoDir)
 
 		// mark task as in_progress in persistent state
 		if cfg.stateTracker != nil {
@@ -432,15 +464,15 @@ func executeRun(cfg execRunConfig) (*execRunResult, error) {
 			return &task.TaskResult{
 				TaskID:  t.ID,
 				State:   task.StateFailed,
-				Error:   "no safe runners available for repo with secrets",
+				Error:   "no eligible runners available",
 				EndedAt: time.Now(),
 			}
 		}
-		result := RunWithCascade(ctx, t, repoDir, outputDir, runners, cascade, cfg.maxRuntime, blacklist, graylist, limiter)
+		result := RunWithCascade(ctx, t, execDir, outputDir, runners, cascade, cfg.maxRuntime, blacklist, graylist, limiter)
 
 		// auto-commit uncommitted changes for successful tasks
 		if result.State == task.StateCompleted && !cfg.noAutoCommit {
-			committed, err := runner.AutoCommit(ctx, repoDir, t)
+			committed, err := runner.AutoCommit(ctx, execDir, t)
 			if err != nil {
 				slog.Warn("auto-commit failed", "task", t.ID, "error", err)
 			} else if committed {
@@ -448,11 +480,29 @@ func executeRun(cfg execRunConfig) (*execRunResult, error) {
 			}
 		}
 
+		// merge worktree branch back to main repo
+		if wtBranch != "" && result.State == task.StateCompleted && cfg.mergeBack {
+			if err := runner.WaitAndAcquire(ctx, repoDir, t.ID+"-merge"); err == nil {
+				if err := runner.MergeBack(ctx, repoDir, wtBranch); err != nil {
+					result.MergeConflict = true
+					slog.Warn("merge failed, branch left for inspection",
+						"task", t.ID, "branch", wtBranch, "error", err)
+				} else {
+					runner.DeleteBranch(ctx, repoDir, wtBranch)
+					wtBranch = "" // clear so we don't report branch that was merged+deleted
+				}
+				runner.Release(repoDir)
+			}
+		}
+		if wtBranch != "" {
+			result.WorktreeBranch = wtBranch
+		}
+
 		// update persistent state with final result
 		if cfg.stateTracker != nil {
 			switch result.State {
 			case task.StateCompleted:
-				cfg.stateTracker.MarkCompleted(t.ID, result.RunnerUsed, gitHead(repoDir))
+				cfg.stateTracker.MarkCompleted(t.ID, result.RunnerUsed, gitHead(execDir))
 			case task.StateFailed:
 				cfg.stateTracker.MarkFailed(t.ID, result.Error)
 			}
@@ -616,6 +666,9 @@ func buildReport(tasksFiles []string, workers int, filter, reposDir string, resu
 			if r.AutoCommitted {
 				report.AutoCommits++
 			}
+			if r.MergeConflict {
+				report.MergeConflicts++
+			}
 		case task.StateFailed:
 			report.Failed++
 		case task.StateSkipped:
@@ -706,6 +759,18 @@ func mergeSettings(tf *task.TaskFile, cfg *config.Settings) {
 			}
 		}
 	}
+}
+
+// resolveMergeBack determines the merge_back setting. Task file overrides
+// settings, which overrides default (true).
+func resolveMergeBack(tf *task.TaskFile, cfg *config.Settings) bool {
+	if tf != nil && tf.MergeBack != nil {
+		return *tf.MergeBack
+	}
+	if cfg != nil && cfg.MergeBack != nil {
+		return *cfg.MergeBack
+	}
+	return true // default: auto-merge
 }
 
 // stripeRunners distributes primary runner assignments across available
