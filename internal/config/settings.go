@@ -50,6 +50,7 @@ type RunnerProfile struct {
 	Env            map[string]string `yaml:"env,omitempty"`
 	MaxConcurrent  int               `yaml:"max_concurrent,omitempty"`
 	DataCollection bool              `yaml:"data_collection,omitempty"` // true = provider may use data for training
+	Free           bool              `yaml:"free,omitempty"`            // true = free-tier model, excluded from cascade by default
 }
 
 // ProxyConfig controls the built-in Responses API → Chat Completions proxy.

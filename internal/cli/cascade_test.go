@@ -425,6 +425,27 @@ func TestMergeSettings_NilConfig(t *testing.T) {
 	}
 }
 
+func TestMergeSettings_CopiesFreeField(t *testing.T) {
+	tf := &task.TaskFile{
+		Tasks: []task.Task{{ID: "t1", Repo: "r", Prompt: "p"}},
+	}
+	cfg := &config.Settings{
+		Runners: map[string]*config.RunnerProfile{
+			"groq": {Type: "opencode", Model: "groq/qwen3-32b", Free: true},
+			"zai":  {Type: "opencode", Model: "zai/glm-4.7"},
+		},
+	}
+
+	mergeSettings(tf, cfg)
+
+	if !tf.Runners["groq"].Free {
+		t.Fatal("Free field should be copied from settings")
+	}
+	if tf.Runners["zai"].Free {
+		t.Fatal("non-free runner should not have Free set")
+	}
+}
+
 func TestFilterDataCollection_PublicRepo(t *testing.T) {
 	profiles := map[string]*task.RunnerProfileConfig{
 		"gemini": {Type: "gemini"},

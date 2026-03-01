@@ -699,6 +699,7 @@ func mergeSettings(tf *task.TaskFile, cfg *config.Settings) {
 					Profile:        rp.Profile,
 					Env:            rp.Env,
 					DataCollection: rp.DataCollection,
+					Free:           rp.Free,
 				}
 			}
 		}
