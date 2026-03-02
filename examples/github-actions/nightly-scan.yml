@@ -1,0 +1,79 @@
+# Nightly Scan & Fix — tokencontrol GitHub Actions workflow
+#
+# Runs portfolio scanner nightly, generates fix tasks, executes them
+# with AI coding agents, and opens draft PRs for review.
+#
+# Required secrets:
+#   OPENAI_API_KEY      — for codex runner
+#   ANTHROPIC_API_KEY   — for claude runner (optional, for fallback cascade)
+#
+# The workflow uses GITHUB_TOKEN (automatic) for gh CLI PR creation.
+
+name: Nightly Scan & Fix
+
+on:
+  schedule:
+    - cron: '0 2 * * 1-5' # weeknights at 2:00 UTC
+  workflow_dispatch:
+    inputs:
+      repos-dir:
+        description: 'Directory containing repos to scan'
+        required: false
+        default: 'repos'
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  scan-and-fix:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
+      - name: Install tokencontrol
+        run: go install github.com/ppiankov/tokencontrol/cmd/tokencontrol@latest
+
+      - name: Check environment
+        run: tokencontrol doctor
+
+      - name: Scan repos
+        run: |
+          tokencontrol scan \
+            --repos-dir ${{ inputs.repos-dir || 'repos' }} \
+            --format tasks \
+            --output tasks.json
+
+      - name: Run tasks
+        run: |
+          tokencontrol run \
+            --tasks tasks.json \
+            --repos-dir ${{ inputs.repos-dir || 'repos' }} \
+            --tui off
+        env:
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+
+      - name: Create draft PRs
+        run: |
+          tokencontrol pr \
+            --repos-dir ${{ inputs.repos-dir || 'repos' }} \
+            --draft
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Upload run report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: tokencontrol-report
+          path: .tokencontrol/
+          retention-days: 30

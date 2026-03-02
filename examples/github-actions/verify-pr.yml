@@ -1,0 +1,53 @@
+# Verify PR — tokencontrol GitHub Actions workflow
+#
+# Runs post-task verification on pull requests created by tokencontrol.
+# Checks: event output, git cleanliness, tests, and lint.
+#
+# This workflow runs on PRs and verifies that agent-generated changes
+# pass quality gates before merge.
+
+name: Verify PR
+
+on:
+  pull_request:
+    types: [opened, synchronize]
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
+      - name: Install tokencontrol
+        run: go install github.com/ppiankov/tokencontrol/cmd/tokencontrol@latest
+
+      - name: Validate task files
+        run: |
+          if [ -f tokencontrol.json ]; then
+            tokencontrol validate --tasks tokencontrol.json
+          fi
+
+      - name: Run verification
+        run: |
+          if [ -d .tokencontrol ]; then
+            tokencontrol verify
+          else
+            echo "No .tokencontrol directory found — skipping verification"
+          fi
+
+      - name: Run tests
+        run: make test
+
+      - name: Run linter
+        run: make lint

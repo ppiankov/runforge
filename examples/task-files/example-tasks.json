@@ -1,0 +1,44 @@
+{
+  "default_runner": "codex",
+  "default_fallbacks": ["claude", "gemini"],
+  "tasks": [
+    {
+      "id": "fix-auth-validation",
+      "repo": "acme/backend",
+      "title": "Fix input validation in auth handler",
+      "prompt": "The login endpoint at /api/auth/login does not validate email format before querying the database. Add email format validation using the existing validator package. Return 400 with a clear error message for invalid emails. Add unit tests for the validation logic.",
+      "priority": 1,
+      "difficulty": "simple"
+    },
+    {
+      "id": "add-rate-limiting",
+      "repo": "acme/backend",
+      "title": "Add rate limiting to public API endpoints",
+      "prompt": "Add rate limiting middleware to all /api/public/ endpoints. Use the token bucket algorithm with a limit of 100 requests per minute per IP. Return 429 with Retry-After header when exceeded. Add integration tests.",
+      "priority": 2,
+      "depends_on": ["fix-auth-validation"],
+      "difficulty": "medium"
+    },
+    {
+      "id": "update-readme",
+      "repo": "acme/docs",
+      "title": "Update API documentation for auth changes",
+      "prompt": "Update the API documentation in README.md to reflect the new email validation on the login endpoint and the rate limiting on public endpoints. Include example requests and error responses.",
+      "priority": 3,
+      "depends_on": ["fix-auth-validation", "add-rate-limiting"],
+      "runner": "gemini",
+      "difficulty": "simple"
+    }
+  ],
+  "runners": {
+    "codex": {
+      "type": "codex"
+    },
+    "claude": {
+      "type": "claude"
+    },
+    "gemini": {
+      "type": "gemini"
+    }
+  }
+}

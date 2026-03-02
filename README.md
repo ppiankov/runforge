@@ -500,6 +500,10 @@ internal/
     ingest.go               -- Forgeaware result import
 ```
 
+## CI/CD Integration
+
+See the [CI Integration Guide](docs/ci-integration.md) for GitHub Actions workflows and setup instructions. Example workflows are in [`examples/github-actions/`](examples/github-actions/).
+
 ## Known Limitations
 
 - No remote execution — runs processes locally
