@@ -62,7 +62,7 @@ brews:
     directory: Formula
     homepage: "https://github.com/ppiankov/runforge"
     description: "Dependency-aware parallel task runner for AI coding agents"
-    license: MIT
+    license: BUSL-1.1
     install: |
       bin.install "runforge"
     test: |
