@@ -94,6 +94,39 @@ tokencontrol run --dry-run --tasks tokencontrol-tasks.json --repos-dir ~/dev/rep
 tokencontrol run --tasks tokencontrol-tasks.json --repos-dir ~/dev/repos --config .tokencontrol.yml --workers 6
 ```
 
+### Example Dry-Run Output
+
+```
+tokencontrol — 3 tasks, 4 workers
+
+Execution plan (dry-run):
+
+  1. [P1] fix-auth-validation — Fix input validation in auth handler
+     difficulty: simple (score: 3)
+     repo: acme/backend
+     prompt: The login endpoint at /api/auth/login does not validate email format before querying...
+
+  2. [P2] add-rate-limiting — Add rate limiting to public API endpoints (after fix-auth-validation)
+     difficulty: medium (score: 8)
+     repo: acme/backend
+     prompt: Add rate limiting middleware to all /api/public/ endpoints...
+
+  3. [P3] update-readme — Update API documentation for auth changes (after fix-auth-validation, add-rate-limiting)
+     difficulty: simple (score: 2)
+     repo: acme/docs
+     prompt: Update the API documentation in README.md to reflect the new email validation...
+```
+
+### Example Run Summary
+
+```
+--- Summary ---
+Total: 3  Completed: 2  Failed: 0  Skipped: 0  Auto-committed: 1  Duration: 2m45s
+Tokens: 12.3K tokens in / 6.8K tokens out (19.1K tokens total)
+```
+
+See [`examples/task-files/`](examples/task-files/) for sample task files.
+
 ## Workflow
 
 ```

@@ -1,0 +1,18 @@
+{
+  "default_runner": "codex",
+  "tasks": [
+    {
+      "id": "fix-readme-typo",
+      "repo": "myorg/myrepo",
+      "title": "Fix typo in README",
+      "prompt": "Fix the spelling error in README.md: change 'recieve' to 'receive' in the installation section."
+    },
+    {
+      "id": "add-tests",
+      "repo": "myorg/myrepo",
+      "title": "Add unit tests for auth module",
+      "prompt": "Add unit tests for the auth module in internal/auth/. Cover login, logout, and token refresh. Aim for 80% coverage.",
+      "depends_on": ["fix-readme-typo"]
+    }
+  ]
+}
