@@ -71,6 +71,8 @@ runners:
 | `tokencontrol sentinel loop` | Continuous daemon: scan, deduplicate, run, cooldown, repeat |
 | `tokencontrol ingest --run-dir DIR` | Import external run results |
 | `tokencontrol doctor` | Health check: runners, config, dependencies |
+| `tokencontrol init` | Initialize `.tokencontrol.yml` and task file scaffold |
+| `tokencontrol pr --run-dir DIR` | Create GitHub PRs from completed worktree tasks |
 | `tokencontrol version` | Print version |
 
 ## Key Flags
@@ -146,7 +148,12 @@ After each run, `report.json` is written to the run directory (`.tokencontrol/<t
       "runner_used": "codex",
       "attempts": [
         {"runner": "codex", "state": 3, "duration": 200000000000}
-      ]
+      ],
+      "tokens_used": {
+        "input_tokens": 5000,
+        "output_tokens": 2000,
+        "total_tokens": 7000
+      }
     }
   },
   "total_tasks": 5,
@@ -154,7 +161,12 @@ After each run, `report.json` is written to the run directory (`.tokencontrol/<t
   "failed": 1,
   "skipped": 0,
   "rate_limited": 0,
-  "total_duration": 600000000000
+  "total_duration": 600000000000,
+  "total_tokens": {
+    "input_tokens": 25000,
+    "output_tokens": 10000,
+    "total_tokens": 35000
+  }
 }
 ```
 

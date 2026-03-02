@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"os"
 	"os/exec"
 	"strings"
 	"time"
@@ -74,9 +75,16 @@ func changedFiles(ctx context.Context, repoDir string) ([]string, error) {
 }
 
 // runGitCmd executes a git command in the given directory.
+// Sets tokencontrol identity so commits work in environments without global git config (e.g. CI).
 func runGitCmd(ctx context.Context, dir string, args ...string) error {
 	cmd := exec.CommandContext(ctx, "git", args...)
 	cmd.Dir = dir
+	cmd.Env = append(os.Environ(),
+		"GIT_AUTHOR_NAME=tokencontrol",
+		"GIT_AUTHOR_EMAIL=tokencontrol@localhost",
+		"GIT_COMMITTER_NAME=tokencontrol",
+		"GIT_COMMITTER_EMAIL=tokencontrol@localhost",
+	)
 	out, err := cmd.CombinedOutput()
 	if err != nil {
 		return fmt.Errorf("%s: %s", err, strings.TrimSpace(string(out)))

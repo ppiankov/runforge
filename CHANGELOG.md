@@ -5,6 +5,12 @@ All notable changes to this project will be documented in this file.
 ## [Unreleased]
 
 ### Added
+- `tokencontrol doctor` command — health check for runners, config, and dependencies
+- `tokencontrol init` command — scaffold `.tokencontrol.yml` and task file with interactive setup
+- `tokencontrol pr` command — create GitHub PRs from completed worktree tasks via `gh`
+- Token usage tracking — per-task and aggregate token counts in run reports (codex, claude, opencode, qwen)
+- Actionable cascade error messages — per-filter breakdown with fix suggestions when all runners eliminated
+- CI/CD integration guide with example GitHub Actions workflows for nightly scan and PR verification
 - `tokencontrol scan` command — portfolio auditor with 26 filesystem-based checks across 6 categories (structure, go, python, security, ci, quality)
 - Scan output formats: text (human-readable with ANSI color), JSON (machine), tasks (tokencontrol task file)
 - Scan-to-task pipeline: `--format tasks` generates agent-ready prompts with file paths, code patterns, verification commands, and constraints
@@ -40,6 +46,13 @@ All notable changes to this project will be documented in this file.
 - Process group management: all runners kill entire process tree on cancel
 - Deterministic run IDs (SHA256 of timestamp + task files)
 - Scan config in `.tokencontrol.yml`: `scan.exclude_repos` for skipping repos during scan
+
+### Changed
+- Renamed project from runforge to tokencontrol (module, binary, config files, run directory)
+- License changed from MIT to BSL 1.1 (non-compete, 4-year change date to Apache 2.0)
+
+### Fixed
+- Auto-commit sets git identity so commits work in CI environments without global git config
 
 ## [0.1.0] - 2026-02-16
 

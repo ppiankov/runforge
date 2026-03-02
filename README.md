@@ -369,6 +369,39 @@ Continuous daemon: scan repos, deduplicate completed tasks, run, cooldown, repea
 tokencontrol sentinel loop --repos-dir ~/dev/repos --cooldown 30m --workers 6
 ```
 
+### `tokencontrol doctor`
+
+Health check: verify runners are installed, config is valid, dependencies are available.
+
+```bash
+tokencontrol doctor
+```
+
+### `tokencontrol init`
+
+Initialize a new `.tokencontrol.yml` config and optional task file scaffold.
+
+```bash
+tokencontrol init                              # interactive setup
+tokencontrol init --repos-dir ~/dev/repos      # specify repos directory
+```
+
+### `tokencontrol pr`
+
+Create GitHub PRs from completed worktree tasks. Pushes worktree branches and creates PRs via `gh`.
+
+| Flag | Default | Description |
+|------|---------|-------------|
+| `--run-dir DIR` | (required) | Run directory with report.json |
+| `--repos-dir DIR` | `.` | Base directory containing repos |
+| `--dry-run` | `false` | Show what PRs would be created |
+| `--draft` | `false` | Create draft PRs |
+
+```bash
+tokencontrol pr --run-dir .tokencontrol/latest --repos-dir ~/dev/repos
+tokencontrol pr --run-dir .tokencontrol/latest --dry-run              # preview
+```
+
 ### `tokencontrol ingest`
 
 Import external run results into forgeaware.
@@ -480,6 +513,9 @@ internal/
     status.go               -- status command: auto-detects latest run dir
     graylist.go             -- graylist CLI subcommands (list, add, remove, clear)
     state_cmd.go            -- state CLI subcommands (list, reset, clear)
+    doctor.go               -- doctor command: runner, config, dependency checks
+    init.go                 -- init command: scaffold .tokencontrol.yml and task file
+    pr.go                   -- pr command: create GitHub PRs from completed worktree tasks
     root.go                 -- Cobra root, version vars, global flags
   config/
     settings.go             -- .tokencontrol.yml loading, runner profile config
@@ -503,6 +539,8 @@ internal/
     graylist.go             -- Model-aware runner graylist with persistence
     prescan.go              -- Pre-dispatch secret scan (pastewatch-cli)
     autocommit.go           -- Post-task auto-commit with deterministic messages
+    usage.go                -- Token usage accumulation helper
+    event.go                -- Shared event types (usage, items)
     validate.go             -- Model pre-validation (OpenCode config parsing)
     health.go               -- Connectivity error detection (TLS/DNS/connection)
     profile.go              -- Runner profile resolution (env: prefix → os.Getenv)
