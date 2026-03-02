@@ -455,7 +455,7 @@ func TestFilterDataCollection_PublicRepo(t *testing.T) {
 
 	// public repo — no filtering
 	cascade := []string{"gemini", "pickle"}
-	result := filterDataCollectionRunners(cascade, "ppiankov/entropia", profiles, privateRepos)
+	result := filterDataCollectionRunners(cascade, "ppiankov/entropia", profiles, privateRepos, nil)
 	if len(result) != 2 {
 		t.Fatalf("public repo should keep all runners, got %d", len(result))
 	}
@@ -470,7 +470,7 @@ func TestFilterDataCollection_PrivateRepo(t *testing.T) {
 	privateRepos := map[string]struct{}{"ppiankov/secret": {}}
 
 	cascade := []string{"gemini", "pickle", "claude"}
-	result := filterDataCollectionRunners(cascade, "ppiankov/secret", profiles, privateRepos)
+	result := filterDataCollectionRunners(cascade, "ppiankov/secret", profiles, privateRepos, nil)
 
 	if len(result) != 2 {
 		t.Fatalf("expected 2 runners after filtering, got %d", len(result))
@@ -486,7 +486,7 @@ func TestFilterDataCollection_NoPrivateRepos(t *testing.T) {
 	}
 
 	cascade := []string{"pickle"}
-	result := filterDataCollectionRunners(cascade, "ppiankov/entropia", profiles, nil)
+	result := filterDataCollectionRunners(cascade, "ppiankov/entropia", profiles, nil, nil)
 	if len(result) != 1 {
 		t.Fatalf("no private repos configured — should keep all, got %d", len(result))
 	}
@@ -500,7 +500,7 @@ func TestFilterDataCollection_AllFiltered(t *testing.T) {
 	privateRepos := map[string]struct{}{"ppiankov/secret": {}}
 
 	cascade := []string{"pickle", "minimax"}
-	result := filterDataCollectionRunners(cascade, "ppiankov/secret", profiles, privateRepos)
+	result := filterDataCollectionRunners(cascade, "ppiankov/secret", profiles, privateRepos, nil)
 
 	if len(result) != 0 {
 		t.Fatalf("all data-collecting runners should be filtered for private repo, got %d", len(result))
@@ -515,7 +515,7 @@ func TestFilterDataCollection_UnknownRunnerKept(t *testing.T) {
 	privateRepos := map[string]struct{}{"ppiankov/secret": {}}
 
 	cascade := []string{"codex", "pickle"}
-	result := filterDataCollectionRunners(cascade, "ppiankov/secret", profiles, privateRepos)
+	result := filterDataCollectionRunners(cascade, "ppiankov/secret", profiles, privateRepos, nil)
 
 	if len(result) != 1 || result[0] != "codex" {
 		t.Fatalf("expected [codex], got %v", result)
@@ -541,7 +541,7 @@ func TestFilterGraylistedRunners_KeepsPrimary(t *testing.T) {
 	gl.Add("gemini", "", "another reason")
 
 	cascade := []string{"codex", "claude", "gemini"}
-	result := filterGraylistedRunners(cascade, gl, nil)
+	result := filterGraylistedRunners(cascade, gl, nil, nil)
 
 	// primary (codex) must stay even though graylisted; gemini filtered from fallbacks
 	expected := []string{"codex", "claude"}
@@ -556,7 +556,7 @@ func TestFilterGraylistedRunners_FiltersFallbacks(t *testing.T) {
 	gl.Add("gpt5nano", "", "0 events")
 
 	cascade := []string{"codex", "minimax-free", "claude", "gpt5nano"}
-	result := filterGraylistedRunners(cascade, gl, nil)
+	result := filterGraylistedRunners(cascade, gl, nil, nil)
 
 	expected := []string{"codex", "claude"}
 	if fmt.Sprintf("%v", result) != fmt.Sprintf("%v", expected) {
@@ -566,7 +566,7 @@ func TestFilterGraylistedRunners_FiltersFallbacks(t *testing.T) {
 
 func TestFilterGraylistedRunners_NilGraylist(t *testing.T) {
 	cascade := []string{"codex", "claude"}
-	result := filterGraylistedRunners(cascade, nil, nil)
+	result := filterGraylistedRunners(cascade, nil, nil, nil)
 
 	if fmt.Sprintf("%v", result) != fmt.Sprintf("%v", cascade) {
 		t.Fatalf("nil graylist should pass through, got %v", result)
@@ -578,7 +578,7 @@ func TestFilterGraylistedRunners_SingleRunner(t *testing.T) {
 	gl.Add("codex", "", "test")
 
 	cascade := []string{"codex"}
-	result := filterGraylistedRunners(cascade, gl, nil)
+	result := filterGraylistedRunners(cascade, gl, nil, nil)
 
 	// single runner = no fallbacks to filter
 	if len(result) != 1 || result[0] != "codex" {
@@ -596,7 +596,7 @@ func TestFilterGraylistedRunners_ModelAware(t *testing.T) {
 	}
 
 	cascade := []string{"codex", "deepseek", "deepseek-pro"}
-	result := filterGraylistedRunners(cascade, gl, profiles)
+	result := filterGraylistedRunners(cascade, gl, profiles, nil)
 
 	// deepseek (deepseek-chat) should be filtered; deepseek-pro (deepseek-reasoner) should stay
 	expected := []string{"codex", "deepseek-pro"}
@@ -708,7 +708,7 @@ func TestFilterFreeRunners_ExcludesByDefault(t *testing.T) {
 		"claude":       {Type: "claude"},
 	}
 	cascade := []string{"codex", "minimax-free", "claude", "deepseek"}
-	result := filterFreeRunners(cascade, false, profiles)
+	result := filterFreeRunners(cascade, false, profiles, nil)
 
 	expected := []string{"codex", "claude"}
 	if fmt.Sprintf("%v", result) != fmt.Sprintf("%v", expected) {
@@ -721,7 +721,7 @@ func TestFilterFreeRunners_AllowFreePassesThrough(t *testing.T) {
 		"minimax-free": {Type: "opencode", Free: true},
 	}
 	cascade := []string{"codex", "minimax-free", "claude"}
-	result := filterFreeRunners(cascade, true, profiles)
+	result := filterFreeRunners(cascade, true, profiles, nil)
 
 	if fmt.Sprintf("%v", result) != fmt.Sprintf("%v", cascade) {
 		t.Fatalf("allowFree should pass all through, got %v", result)
@@ -733,7 +733,7 @@ func TestFilterFreeRunners_PrimaryKeepsEvenIfFree(t *testing.T) {
 		"minimax-free": {Type: "opencode", Free: true},
 	}
 	cascade := []string{"minimax-free", "claude"}
-	result := filterFreeRunners(cascade, false, profiles)
+	result := filterFreeRunners(cascade, false, profiles, nil)
 
 	// primary always passes, even if marked free
 	expected := []string{"minimax-free", "claude"}
@@ -744,7 +744,7 @@ func TestFilterFreeRunners_PrimaryKeepsEvenIfFree(t *testing.T) {
 
 func TestFilterFreeRunners_SingleRunner(t *testing.T) {
 	cascade := []string{"codex"}
-	result := filterFreeRunners(cascade, false, nil)
+	result := filterFreeRunners(cascade, false, nil, nil)
 
 	if len(result) != 1 || result[0] != "codex" {
 		t.Fatalf("single runner should pass through, got %v", result)
@@ -753,7 +753,7 @@ func TestFilterFreeRunners_SingleRunner(t *testing.T) {
 
 func TestFilterFreeRunners_NilProfiles(t *testing.T) {
 	cascade := []string{"codex", "claude"}
-	result := filterFreeRunners(cascade, false, nil)
+	result := filterFreeRunners(cascade, false, nil, nil)
 
 	if fmt.Sprintf("%v", result) != fmt.Sprintf("%v", cascade) {
 		t.Fatalf("nil profiles should pass through, got %v", result)
@@ -849,7 +849,7 @@ func TestFilterByTier_SimpleAllowsAll(t *testing.T) {
 		"qwen":   {Type: "qwen"},
 	}
 	cascade := []string{"codex", "gemini", "qwen"}
-	result := filterByTier(cascade, task.DifficultySimple, profiles)
+	result := filterByTier(cascade, task.DifficultySimple, profiles, nil)
 
 	if fmt.Sprintf("%v", result) != fmt.Sprintf("%v", cascade) {
 		t.Fatalf("simple difficulty should allow all tiers, got %v", result)
@@ -863,7 +863,7 @@ func TestFilterByTier_MediumFiltersTier3(t *testing.T) {
 		"qwen":   {Type: "qwen"},
 	}
 	cascade := []string{"codex", "gemini", "qwen"}
-	result := filterByTier(cascade, task.DifficultyMedium, profiles)
+	result := filterByTier(cascade, task.DifficultyMedium, profiles, nil)
 
 	expected := []string{"codex", "gemini"}
 	if fmt.Sprintf("%v", result) != fmt.Sprintf("%v", expected) {
@@ -878,7 +878,7 @@ func TestFilterByTier_ComplexOnlyTier1(t *testing.T) {
 		"qwen":   {Type: "qwen"},
 	}
 	cascade := []string{"codex", "gemini", "qwen"}
-	result := filterByTier(cascade, task.DifficultyComplex, profiles)
+	result := filterByTier(cascade, task.DifficultyComplex, profiles, nil)
 
 	expected := []string{"codex"}
 	if fmt.Sprintf("%v", result) != fmt.Sprintf("%v", expected) {
@@ -893,7 +893,7 @@ func TestFilterByTier_PrimaryAlwaysKept(t *testing.T) {
 	}
 	// qwen (tier 3) is primary — should be kept even for complex tasks
 	cascade := []string{"qwen", "codex"}
-	result := filterByTier(cascade, task.DifficultyComplex, profiles)
+	result := filterByTier(cascade, task.DifficultyComplex, profiles, nil)
 
 	expected := []string{"qwen", "codex"}
 	if fmt.Sprintf("%v", result) != fmt.Sprintf("%v", expected) {
@@ -907,7 +907,7 @@ func TestFilterByTier_EmptyDifficulty(t *testing.T) {
 		"qwen":  {Type: "qwen"},
 	}
 	cascade := []string{"codex", "qwen"}
-	result := filterByTier(cascade, "", profiles)
+	result := filterByTier(cascade, "", profiles, nil)
 
 	if fmt.Sprintf("%v", result) != fmt.Sprintf("%v", cascade) {
 		t.Fatalf("empty difficulty should not filter, got %v", result)
@@ -921,7 +921,7 @@ func TestFilterByTier_CustomTierOverride(t *testing.T) {
 		"qwen-free": {Type: "qwen"},          // default tier 3
 	}
 	cascade := []string{"codex", "qwen-pro", "qwen-free"}
-	result := filterByTier(cascade, task.DifficultyComplex, profiles)
+	result := filterByTier(cascade, task.DifficultyComplex, profiles, nil)
 
 	expected := []string{"codex", "qwen-pro"}
 	if fmt.Sprintf("%v", result) != fmt.Sprintf("%v", expected) {
@@ -931,7 +931,7 @@ func TestFilterByTier_CustomTierOverride(t *testing.T) {
 
 func TestFilterByTier_SingleRunner(t *testing.T) {
 	cascade := []string{"codex"}
-	result := filterByTier(cascade, task.DifficultyComplex, nil)
+	result := filterByTier(cascade, task.DifficultyComplex, nil, nil)
 
 	if len(result) != 1 || result[0] != "codex" {
 		t.Fatalf("single runner should pass through, got %v", result)
@@ -984,5 +984,119 @@ func TestMergeSettings_CopiesTierField(t *testing.T) {
 	}
 	if tf.Runners["gemini"].Tier != 0 {
 		t.Fatal("default tier (0) should not be modified")
+	}
+}
+
+func TestFilterLog_CapturesRemovals(t *testing.T) {
+	fl := &filterLog{}
+
+	// graylist removes deepseek
+	gl := runner.NewRunnerGraylist()
+	gl.Add("deepseek", "deepseek-chat", "bad quality")
+	profiles := map[string]*task.RunnerProfileConfig{
+		"deepseek": {Type: "opencode", Model: "deepseek-chat"},
+		"claude":   {Type: "claude"},
+	}
+	cascade := []string{"codex", "deepseek", "claude"}
+	_ = filterGraylistedRunners(cascade, gl, profiles, fl)
+
+	if len(fl.entries) != 1 {
+		t.Fatalf("expected 1 filter entry, got %d", len(fl.entries))
+	}
+	if fl.entries[0].Filter != "graylist" {
+		t.Fatalf("expected graylist filter, got %s", fl.entries[0].Filter)
+	}
+	if len(fl.entries[0].Removed) != 1 || fl.entries[0].Removed[0] != "deepseek" {
+		t.Fatalf("expected [deepseek] removed, got %v", fl.entries[0].Removed)
+	}
+}
+
+func TestFilterLog_MultipleFilters(t *testing.T) {
+	fl := &filterLog{}
+
+	profiles := map[string]*task.RunnerProfileConfig{
+		"groq": {Type: "opencode", Free: true},
+		"qwen": {Type: "qwen"},
+	}
+
+	cascade := []string{"codex", "groq", "qwen"}
+	cascade = filterFreeRunners(cascade, false, profiles, fl)
+	_ = filterByTier(cascade, task.DifficultyComplex, profiles, fl)
+
+	if len(fl.entries) != 2 {
+		t.Fatalf("expected 2 filter entries, got %d", len(fl.entries))
+	}
+	if fl.entries[0].Filter != "free" {
+		t.Fatalf("expected free filter first, got %s", fl.entries[0].Filter)
+	}
+	if fl.entries[1].Filter != "tier" {
+		t.Fatalf("expected tier filter second, got %s", fl.entries[1].Filter)
+	}
+}
+
+func TestFilterLog_NilSafe(t *testing.T) {
+	// nil filterLog should not panic
+	var fl *filterLog
+	fl.add("test", []string{"a"}, "reason")
+	// no panic = pass
+}
+
+func TestFormatCascadeError_WithEntries(t *testing.T) {
+	fl := &filterLog{}
+	fl.add("graylist", []string{"deepseek"}, "false positive detected")
+	fl.add("free", []string{"groq"}, "free-tier excluded by default")
+
+	msg := formatCascadeError("repo-WO01", fl)
+
+	if !strings.Contains(msg, "no eligible runners for task repo-WO01") {
+		t.Errorf("expected task ID in error, got:\n%s", msg)
+	}
+	if !strings.Contains(msg, "graylist:") {
+		t.Errorf("expected graylist filter in error, got:\n%s", msg)
+	}
+	if !strings.Contains(msg, "deepseek") {
+		t.Errorf("expected removed runner name, got:\n%s", msg)
+	}
+	if !strings.Contains(msg, "Suggestions:") {
+		t.Errorf("expected suggestions section, got:\n%s", msg)
+	}
+	if !strings.Contains(msg, "tokencontrol graylist remove deepseek") {
+		t.Errorf("expected graylist removal suggestion, got:\n%s", msg)
+	}
+	if !strings.Contains(msg, "tokencontrol run --allow-free") {
+		t.Errorf("expected --allow-free suggestion, got:\n%s", msg)
+	}
+}
+
+func TestFormatCascadeError_NoEntries(t *testing.T) {
+	fl := &filterLog{}
+	msg := formatCascadeError("repo-WO01", fl)
+
+	if !strings.Contains(msg, "no eligible runners for task repo-WO01") {
+		t.Errorf("expected task ID in error, got:\n%s", msg)
+	}
+	if strings.Contains(msg, "Suggestions:") {
+		t.Errorf("should not have suggestions with no entries, got:\n%s", msg)
+	}
+}
+
+func TestFormatCascadeError_NilLog(t *testing.T) {
+	msg := formatCascadeError("repo-WO01", nil)
+	if !strings.Contains(msg, "no eligible runners for task repo-WO01") {
+		t.Errorf("expected task ID in error, got:\n%s", msg)
+	}
+}
+
+func TestCascadeSuggestions_AllFilters(t *testing.T) {
+	fl := &filterLog{}
+	fl.add("graylist", []string{"ds"}, "reason")
+	fl.add("free", []string{"groq"}, "reason")
+	fl.add("secret", []string{"opencode"}, "reason")
+	fl.add("tier", []string{"qwen"}, "reason")
+	fl.add("data-collection", []string{"pickle"}, "reason")
+
+	suggestions := cascadeSuggestions(fl)
+	if len(suggestions) != 5 {
+		t.Fatalf("expected 5 suggestions, got %d: %v", len(suggestions), suggestions)
 	}
 }

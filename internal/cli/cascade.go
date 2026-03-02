@@ -247,6 +247,71 @@ func buildProviderLimiter(limits map[string]int) *runner.ProviderLimiter {
 	return runner.NewProviderLimiter(limits)
 }
 
+// filterEntry records one filter's removal of runners from a cascade.
+type filterEntry struct {
+	Filter  string   // "graylist", "free", "secret", "tier", "data-collection"
+	Removed []string // runner names removed
+	Reason  string   // human-readable explanation
+}
+
+// filterLog accumulates removal reasons across the filter chain.
+type filterLog struct {
+	entries []filterEntry
+}
+
+func (fl *filterLog) add(filter string, removed []string, reason string) {
+	if fl == nil || len(removed) == 0 {
+		return
+	}
+	fl.entries = append(fl.entries, filterEntry{Filter: filter, Removed: removed, Reason: reason})
+}
+
+// formatCascadeError builds a detailed error message from filter log entries.
+func formatCascadeError(taskID string, fl *filterLog) string {
+	var b strings.Builder
+	fmt.Fprintf(&b, "no eligible runners for task %s", taskID)
+
+	if fl != nil {
+		for _, e := range fl.entries {
+			fmt.Fprintf(&b, "\n  %-18s removed %s (%s)", e.Filter+":", strings.Join(e.Removed, ", "), e.Reason)
+		}
+
+		suggestions := cascadeSuggestions(fl)
+		if len(suggestions) > 0 {
+			b.WriteString("\nSuggestions:")
+			for _, s := range suggestions {
+				fmt.Fprintf(&b, "\n  %s", s)
+			}
+		}
+	}
+	return b.String()
+}
+
+// cascadeSuggestions generates actionable fix suggestions from filter log entries.
+func cascadeSuggestions(fl *filterLog) []string {
+	if fl == nil {
+		return nil
+	}
+	var suggestions []string
+	for _, e := range fl.entries {
+		switch e.Filter {
+		case "graylist":
+			for _, r := range e.Removed {
+				suggestions = append(suggestions, fmt.Sprintf("tokencontrol graylist remove %s", r))
+			}
+		case "free":
+			suggestions = append(suggestions, "tokencontrol run --allow-free")
+		case "secret":
+			suggestions = append(suggestions, "use claude or cline (safe runners with secret protection)")
+		case "tier":
+			suggestions = append(suggestions, "set tier: 1 on runner profile, or reduce task difficulty")
+		case "data-collection":
+			suggestions = append(suggestions, "remove data_collection: true from runner profile, or remove repo from private_repos")
+		}
+	}
+	return suggestions
+}
+
 // filterDataCollectionRunners removes runners marked with data_collection: true
 // from the cascade when the task targets a private repo. This is a structural
 // safeguard: private code must never be sent to providers that use data for training.
@@ -255,6 +320,7 @@ func filterDataCollectionRunners(
 	repo string,
 	profiles map[string]*task.RunnerProfileConfig,
 	privateRepos map[string]struct{},
+	fl *filterLog,
 ) []string {
 	if len(privateRepos) == 0 {
 		return cascade
@@ -263,16 +329,19 @@ func filterDataCollectionRunners(
 		return cascade
 	}
 
+	var removed []string
 	filtered := make([]string, 0, len(cascade))
 	for _, name := range cascade {
 		p, ok := profiles[name]
 		if ok && p.DataCollection {
 			slog.Warn("skipping data-collecting runner for private repo",
 				"runner", name, "repo", repo)
+			removed = append(removed, name)
 			continue
 		}
 		filtered = append(filtered, name)
 	}
+	fl.add("data-collection", removed, "data-collecting runner on private repo")
 	return filtered
 }
 
@@ -281,10 +350,11 @@ func filterDataCollectionRunners(
 // task.Runner assignment overrides the graylist. Uses profiles to check the
 // specific model, so graylisting "deepseek:deepseek-chat" does not block
 // "deepseek:deepseek-reasoner".
-func filterGraylistedRunners(cascade []string, graylist *runner.RunnerGraylist, profiles map[string]*task.RunnerProfileConfig) []string {
+func filterGraylistedRunners(cascade []string, graylist *runner.RunnerGraylist, profiles map[string]*task.RunnerProfileConfig, fl *filterLog) []string {
 	if graylist == nil || len(cascade) <= 1 {
 		return cascade
 	}
+	var removed []string
 	filtered := []string{cascade[0]}
 	for _, name := range cascade[1:] {
 		model := ""
@@ -293,49 +363,57 @@ func filterGraylistedRunners(cascade []string, graylist *runner.RunnerGraylist, 
 		}
 		if graylist.IsGraylisted(name, model) {
 			slog.Debug("runner graylisted, removing from fallbacks", "runner", name, "model", model)
+			removed = append(removed, name)
 			continue
 		}
 		filtered = append(filtered, name)
 	}
+	fl.add("graylist", removed, "false positive detected")
 	return filtered
 }
 
 // filterFreeRunners removes free-tier runners from fallback positions in the
 // cascade. The primary runner (index 0) is never filtered — explicit task.Runner
 // assignment overrides the free filter. When allowFree is true, all runners pass.
-func filterFreeRunners(cascade []string, allowFree bool, profiles map[string]*task.RunnerProfileConfig) []string {
+func filterFreeRunners(cascade []string, allowFree bool, profiles map[string]*task.RunnerProfileConfig, fl *filterLog) []string {
 	if allowFree || len(cascade) <= 1 {
 		return cascade
 	}
+	var removed []string
 	filtered := []string{cascade[0]}
 	for _, name := range cascade[1:] {
 		if p, ok := profiles[name]; ok && p.Free {
 			slog.Debug("free-tier runner excluded from fallbacks", "runner", name)
+			removed = append(removed, name)
 			continue
 		}
 		filtered = append(filtered, name)
 	}
+	fl.add("free", removed, "free-tier excluded by default")
 	return filtered
 }
 
 // filterSecretAwareRunners removes unsafe runners from fallback positions when
 // the task's repo has secrets. The primary runner (index 0) is never filtered —
 // explicit task.Runner assignment overrides the secret filter.
-func filterSecretAwareRunners(cascade []string, repo string, secretRepos map[string]struct{}) []string {
+func filterSecretAwareRunners(cascade []string, repo string, secretRepos map[string]struct{}, fl *filterLog) []string {
 	if len(secretRepos) == 0 || len(cascade) <= 1 {
 		return cascade
 	}
 	if _, hasSecrets := secretRepos[repo]; !hasSecrets {
 		return cascade
 	}
+	var removed []string
 	filtered := []string{cascade[0]}
 	for _, name := range cascade[1:] {
 		if !runner.IsSafeRunner(name) {
 			slog.Warn("removing unsafe runner for repo with secrets", "runner", name, "repo", repo)
+			removed = append(removed, name)
 			continue
 		}
 		filtered = append(filtered, name)
 	}
+	fl.add("secret", removed, "unsafe for repos with secrets")
 	return filtered
 }
 
@@ -343,21 +421,24 @@ func filterSecretAwareRunners(cascade []string, repo string, secretRepos map[str
 // tier required by the task's difficulty. The primary runner (index 0) is never
 // filtered — explicit task.Runner assignment overrides tier. When difficulty is
 // empty, no filtering is applied.
-func filterByTier(cascade []string, difficulty string, profiles map[string]*task.RunnerProfileConfig) []string {
+func filterByTier(cascade []string, difficulty string, profiles map[string]*task.RunnerProfileConfig, fl *filterLog) []string {
 	if difficulty == "" || len(cascade) <= 1 {
 		return cascade
 	}
 	minTier := task.MinTier(difficulty)
+	var removed []string
 	filtered := []string{cascade[0]}
 	for _, name := range cascade[1:] {
 		tier := resolveTier(name, profiles)
 		if tier > minTier {
 			slog.Debug("runner below required tier, removing from fallbacks",
 				"runner", name, "tier", tier, "required", minTier, "difficulty", difficulty)
+			removed = append(removed, name)
 			continue
 		}
 		filtered = append(filtered, name)
 	}
+	fl.add("tier", removed, fmt.Sprintf("below required tier %d for %s tasks", minTier, difficulty))
 	return filtered
 }
 

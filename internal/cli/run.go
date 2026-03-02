@@ -454,17 +454,18 @@ func executeRun(cfg execRunConfig) (*execRunResult, error) {
 		// save task metadata so output dir is self-contained
 		writeTaskMeta(outputDir, t)
 
+		fl := &filterLog{}
 		cascade := resolveRunnerCascade(t, defaultRunner, tf.DefaultFallbacks)
-		cascade = filterDataCollectionRunners(cascade, t.Repo, tf.Runners, privateRepos)
-		cascade = filterGraylistedRunners(cascade, graylist, tf.Runners)
-		cascade = filterFreeRunners(cascade, cfg.allowFree, tf.Runners)
-		cascade = filterSecretAwareRunners(cascade, t.Repo, secretRepos)
-		cascade = filterByTier(cascade, t.Difficulty, tf.Runners)
+		cascade = filterDataCollectionRunners(cascade, t.Repo, tf.Runners, privateRepos, fl)
+		cascade = filterGraylistedRunners(cascade, graylist, tf.Runners, fl)
+		cascade = filterFreeRunners(cascade, cfg.allowFree, tf.Runners, fl)
+		cascade = filterSecretAwareRunners(cascade, t.Repo, secretRepos, fl)
+		cascade = filterByTier(cascade, t.Difficulty, tf.Runners, fl)
 		if len(cascade) == 0 {
 			return &task.TaskResult{
 				TaskID:  t.ID,
 				State:   task.StateFailed,
-				Error:   "no eligible runners available",
+				Error:   formatCascadeError(t.ID, fl),
 				EndedAt: time.Now(),
 			}
 		}
