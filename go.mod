@@ -1,4 +1,4 @@
-module github.com/ppiankov/runforge
+module github.com/ppiankov/tokencontrol
 
 go 1.25.7
 

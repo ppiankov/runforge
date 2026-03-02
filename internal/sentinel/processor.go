@@ -9,8 +9,8 @@ import (
 	"path/filepath"
 	"time"
 
-	"github.com/ppiankov/runforge/internal/ingest"
-	"github.com/ppiankov/runforge/internal/task"
+	"github.com/ppiankov/tokencontrol/internal/ingest"
+	"github.com/ppiankov/tokencontrol/internal/task"
 )
 
 // ProcessResult records the outcome of a WO execution.

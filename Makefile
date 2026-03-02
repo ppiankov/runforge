@@ -1,5 +1,5 @@
-BINARY    := runforge
-MODULE    := github.com/ppiankov/runforge
+BINARY    := tokencontrol
+MODULE    := github.com/ppiankov/tokencontrol
 VERSION   ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
 VERSION_NUM := $(VERSION:v%=%)
 COMMIT    := $(shell git rev-parse --short HEAD 2>/dev/null || echo none)
@@ -9,7 +9,7 @@ LDFLAGS   := -X $(MODULE)/internal/cli.Version=$(VERSION_NUM) -X $(MODULE)/inter
 .PHONY: build test lint clean install
 
 build:
-	go build -ldflags "$(LDFLAGS)" -o bin/$(BINARY) ./cmd/runforge
+	go build -ldflags "$(LDFLAGS)" -o bin/$(BINARY) ./cmd/tokencontrol
 
 install: build
 	cp bin/$(BINARY) $(shell go env GOPATH)/bin/$(BINARY)

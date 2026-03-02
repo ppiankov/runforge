@@ -639,8 +639,8 @@ func TestQualityStaleWO_AllDone(t *testing.T) {
 func TestQualityOrphanedTasks_Found(t *testing.T) {
 	dir := makeRepo(t, "orphaned", map[string]string{
 		"go.mod":             "module m\n\ngo 1.24\n",
-		"runforge-wo71.json": `{"tasks": []}`,
-		"runforge-wo72.json": `{"tasks": []}`,
+		"tokencontrol-wo71.json": `{"tasks": []}`,
+		"tokencontrol-wo72.json": `{"tasks": []}`,
 	})
 	repo := DetectRepo(dir)
 
@@ -655,7 +655,7 @@ func TestQualityOrphanedTasks_Found(t *testing.T) {
 	if !strings.Contains(findings[0].Message, "2 orphaned") {
 		t.Errorf("unexpected message: %q", findings[0].Message)
 	}
-	if !strings.Contains(findings[0].Message, "runforge-wo71.json") {
+	if !strings.Contains(findings[0].Message, "tokencontrol-wo71.json") {
 		t.Errorf("message should list filenames: %q", findings[0].Message)
 	}
 }

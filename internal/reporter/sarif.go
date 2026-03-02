@@ -6,7 +6,7 @@ import (
 	"os"
 	"sort"
 
-	"github.com/ppiankov/runforge/internal/task"
+	"github.com/ppiankov/tokencontrol/internal/task"
 )
 
 const (
@@ -110,7 +110,7 @@ func WriteSARIFReport(report *task.RunReport, graph *task.Graph, path string) er
 		Version: sarifVersion,
 		Runs: []sarifRun{{
 			Tool: sarifTool{
-				Driver: sarifDriver{Name: "runforge"},
+				Driver: sarifDriver{Name: "tokencontrol"},
 			},
 			Results: results,
 		}},

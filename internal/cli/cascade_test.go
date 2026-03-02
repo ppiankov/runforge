@@ -10,9 +10,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/ppiankov/runforge/internal/config"
-	"github.com/ppiankov/runforge/internal/runner"
-	"github.com/ppiankov/runforge/internal/task"
+	"github.com/ppiankov/tokencontrol/internal/config"
+	"github.com/ppiankov/tokencontrol/internal/runner"
+	"github.com/ppiankov/tokencontrol/internal/task"
 )
 
 // mockRunner simulates a runner with configurable behavior.

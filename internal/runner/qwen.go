@@ -12,7 +12,7 @@ import (
 	"path/filepath"
 	"time"
 
-	"github.com/ppiankov/runforge/internal/task"
+	"github.com/ppiankov/tokencontrol/internal/task"
 )
 
 // qwenEvent represents a single event from Qwen Code's stream-json output.

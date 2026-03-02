@@ -8,10 +8,10 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/ppiankov/runforge/internal/config"
-	"github.com/ppiankov/runforge/internal/reporter"
-	"github.com/ppiankov/runforge/internal/state"
-	"github.com/ppiankov/runforge/internal/task"
+	"github.com/ppiankov/tokencontrol/internal/config"
+	"github.com/ppiankov/tokencontrol/internal/reporter"
+	"github.com/ppiankov/tokencontrol/internal/state"
+	"github.com/ppiankov/tokencontrol/internal/task"
 )
 
 func newRerunCmd() *cobra.Command {

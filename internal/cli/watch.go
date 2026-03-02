@@ -9,7 +9,7 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/ppiankov/runforge/internal/reporter"
+	"github.com/ppiankov/tokencontrol/internal/reporter"
 )
 
 func newWatchCmd() *cobra.Command {
@@ -17,8 +17,8 @@ func newWatchCmd() *cobra.Command {
 
 	cmd := &cobra.Command{
 		Use:   "watch",
-		Short: "Monitor a running runforge session in real-time",
-		Long:  "Watch provides a top-like TUI that monitors .runforge run directories, showing task state, event counts, and last action.",
+		Short: "Monitor a running tokencontrol session in real-time",
+		Long:  "Watch provides a top-like TUI that monitors .tokencontrol run directories, showing task state, event counts, and last action.",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if runDir == "" {
 				detected, err := detectLatestRunDir()
@@ -31,15 +31,15 @@ func newWatchCmd() *cobra.Command {
 		},
 	}
 
-	cmd.Flags().StringVar(&runDir, "run-dir", "", "path to .runforge/<timestamp> directory (auto-detects latest if omitted)")
+	cmd.Flags().StringVar(&runDir, "run-dir", "", "path to .tokencontrol/<timestamp> directory (auto-detects latest if omitted)")
 
 	return cmd
 }
 
 func detectLatestRunDir() (string, error) {
-	entries, err := os.ReadDir(".runforge")
+	entries, err := os.ReadDir(".tokencontrol")
 	if err != nil {
-		return "", fmt.Errorf("no .runforge directory found: %w", err)
+		return "", fmt.Errorf("no .tokencontrol directory found: %w", err)
 	}
 	var dirs []string
 	for _, e := range entries {
@@ -48,10 +48,10 @@ func detectLatestRunDir() (string, error) {
 		}
 	}
 	if len(dirs) == 0 {
-		return "", fmt.Errorf("no run directories found in .runforge/")
+		return "", fmt.Errorf("no run directories found in .tokencontrol/")
 	}
 	sort.Strings(dirs)
-	return filepath.Join(".runforge", dirs[len(dirs)-1]), nil
+	return filepath.Join(".tokencontrol", dirs[len(dirs)-1]), nil
 }
 
 func runWatch(runDir string) error {

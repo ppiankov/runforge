@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/ppiankov/runforge/internal/cli"
+	"github.com/ppiankov/tokencontrol/internal/cli"
 )
 
 func main() {

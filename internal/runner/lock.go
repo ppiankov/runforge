@@ -14,7 +14,7 @@ import (
 
 const lockPollInterval = 5 * time.Second
 
-const lockFileName = ".runforge.lock"
+const lockFileName = ".tokencontrol.lock"
 
 // LockInfo describes the owner of a repo lock.
 type LockInfo struct {

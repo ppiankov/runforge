@@ -10,9 +10,9 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/ppiankov/runforge/internal/ingest"
-	"github.com/ppiankov/runforge/internal/sentinel"
-	"github.com/ppiankov/runforge/internal/task"
+	"github.com/ppiankov/tokencontrol/internal/ingest"
+	"github.com/ppiankov/tokencontrol/internal/sentinel"
+	"github.com/ppiankov/tokencontrol/internal/task"
 )
 
 func newSentinelCmd() *cobra.Command {

@@ -6,8 +6,8 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/ppiankov/runforge/internal/config"
-	"github.com/ppiankov/runforge/internal/scan"
+	"github.com/ppiankov/tokencontrol/internal/config"
+	"github.com/ppiankov/tokencontrol/internal/scan"
 )
 
 func newScanCmd() *cobra.Command {
@@ -82,7 +82,7 @@ func newScanCmd() *cobra.Command {
 					return err
 				}
 				if output != "" {
-					fmt.Fprintf(os.Stderr, "\nTo run:\n  runforge run --tasks %s --tui minimal\n", output)
+					fmt.Fprintf(os.Stderr, "\nTo run:\n  tokencontrol run --tasks %s --tui minimal\n", output)
 				}
 				return nil
 			default:

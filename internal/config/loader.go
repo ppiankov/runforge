@@ -8,10 +8,10 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/ppiankov/runforge/internal/task"
+	"github.com/ppiankov/tokencontrol/internal/task"
 )
 
-// Load reads and validates a runforge task file.
+// Load reads and validates a tokencontrol task file.
 func Load(path string) (*task.TaskFile, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {

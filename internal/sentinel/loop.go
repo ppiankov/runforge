@@ -8,9 +8,9 @@ import (
 	"log/slog"
 	"time"
 
-	"github.com/ppiankov/runforge/internal/config"
-	"github.com/ppiankov/runforge/internal/scan"
-	"github.com/ppiankov/runforge/internal/task"
+	"github.com/ppiankov/tokencontrol/internal/config"
+	"github.com/ppiankov/tokencontrol/internal/scan"
+	"github.com/ppiankov/tokencontrol/internal/task"
 )
 
 // RunResult captures the outcome of an executeRun call.
@@ -32,7 +32,7 @@ type RunFunc func(ctx context.Context, tasks []task.Task, tf *task.TaskFile) (*R
 type LoopConfig struct {
 	ReposDir     string
 	Owner        string
-	StateDir     string // persistent state directory (~/.runforge/sentinel/)
+	StateDir     string // persistent state directory (~/.tokencontrol/sentinel/)
 	Cooldown     time.Duration
 	ScanOnly     bool
 	GenerateOnly bool

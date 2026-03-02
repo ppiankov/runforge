@@ -59,7 +59,7 @@ func TestParseWorkOrders_KafkaspectreFmt(t *testing.T) {
 
 func TestParseWorkOrders_RunforgeFmt(t *testing.T) {
 	// Format: **Status:** + **Priority:** + ### Summary + ### Acceptance criteria + - [ ] bullet
-	input := `# Work Orders — runforge
+	input := `# Work Orders — tokencontrol
 
 ## WO-1: Multi-dependency support
 

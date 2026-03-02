@@ -8,8 +8,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/ppiankov/runforge/internal/ingest"
-	"github.com/ppiankov/runforge/internal/task"
+	"github.com/ppiankov/tokencontrol/internal/ingest"
+	"github.com/ppiankov/tokencontrol/internal/task"
 )
 
 // testPayload creates a minimal valid IngestPayload JSON.

@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/ppiankov/runforge/internal/config"
+	"github.com/ppiankov/tokencontrol/internal/config"
 )
 
 // fakeEnv returns a doctorEnv where all tools are found and all creds are set.
@@ -35,7 +35,7 @@ func fakeEnv() *doctorEnv {
 
 func TestDoctor_AllOK(t *testing.T) {
 	env := fakeEnv()
-	result := runDoctor(env, ".runforge.yml")
+	result := runDoctor(env, ".tokencontrol.yml")
 
 	if result.Status != "ok" {
 		t.Fatalf("expected ok, got %s", result.Status)
@@ -60,7 +60,7 @@ func TestDoctor_MissingRunner(t *testing.T) {
 		return "/usr/local/bin/" + name, nil
 	}
 
-	result := runDoctor(env, ".runforge.yml")
+	result := runDoctor(env, ".tokencontrol.yml")
 
 	if result.Status != "warn" {
 		t.Fatalf("expected warn, got %s", result.Status)
@@ -85,7 +85,7 @@ func TestDoctor_MissingGit(t *testing.T) {
 		return "/usr/local/bin/" + name, nil
 	}
 
-	result := runDoctor(env, ".runforge.yml")
+	result := runDoctor(env, ".tokencontrol.yml")
 
 	if result.Status != "error" {
 		t.Fatalf("expected error, got %s", result.Status)
@@ -110,7 +110,7 @@ func TestDoctor_MissingCredential(t *testing.T) {
 		return "test-value"
 	}
 
-	result := runDoctor(env, ".runforge.yml")
+	result := runDoctor(env, ".tokencontrol.yml")
 
 	if result.Status != "warn" {
 		t.Fatalf("expected warn, got %s", result.Status)
@@ -132,10 +132,10 @@ func TestDoctor_MissingCredential(t *testing.T) {
 func TestDoctor_BadConfig(t *testing.T) {
 	env := fakeEnv()
 	env.loadConfig = func(path string) (*config.Settings, error) {
-		return nil, errors.New("parse config .runforge.yml: yaml: unmarshal errors")
+		return nil, errors.New("parse config .tokencontrol.yml: yaml: unmarshal errors")
 	}
 
-	result := runDoctor(env, ".runforge.yml")
+	result := runDoctor(env, ".tokencontrol.yml")
 
 	for _, c := range result.Checks {
 		if c.Name == "config" {
@@ -157,7 +157,7 @@ func TestDoctor_NoConfig(t *testing.T) {
 		return &config.Settings{}, nil
 	}
 
-	result := runDoctor(env, ".runforge.yml")
+	result := runDoctor(env, ".tokencontrol.yml")
 
 	for _, c := range result.Checks {
 		if c.Name == "config" {
@@ -175,7 +175,7 @@ func TestDoctor_NoConfig(t *testing.T) {
 
 func TestDoctor_JSONOutput(t *testing.T) {
 	env := fakeEnv()
-	result := runDoctor(env, ".runforge.yml")
+	result := runDoctor(env, ".tokencontrol.yml")
 
 	var buf bytes.Buffer
 	if err := formatDoctorJSON(&buf, result); err != nil {
@@ -193,21 +193,21 @@ func TestDoctor_JSONOutput(t *testing.T) {
 		t.Errorf("expected 15 checks, got %d", len(parsed.Checks))
 	}
 	// Verify first check is version
-	if parsed.Checks[0].Name != "runforge-version" {
-		t.Errorf("expected first check runforge-version, got %s", parsed.Checks[0].Name)
+	if parsed.Checks[0].Name != "tokencontrol-version" {
+		t.Errorf("expected first check tokencontrol-version, got %s", parsed.Checks[0].Name)
 	}
 }
 
 func TestDoctor_TextOutput(t *testing.T) {
 	env := fakeEnv()
-	result := runDoctor(env, ".runforge.yml")
+	result := runDoctor(env, ".tokencontrol.yml")
 
 	var buf bytes.Buffer
 	formatDoctorText(&buf, result)
 
 	out := buf.String()
-	if !strings.Contains(out, "runforge version") {
-		t.Error("text output missing 'runforge version'")
+	if !strings.Contains(out, "tokencontrol version") {
+		t.Error("text output missing 'tokencontrol version'")
 	}
 	if !strings.Contains(out, "Runner: codex") {
 		t.Error("text output missing 'Runner: codex'")
@@ -246,7 +246,7 @@ func TestDoctor_StatusAggregation(t *testing.T) {
 				env.getenv = func(key string) string { return "" }
 			}
 
-			result := runDoctor(env, ".runforge.yml")
+			result := runDoctor(env, ".tokencontrol.yml")
 			if result.Status != tt.want {
 				t.Errorf("expected %s, got %s", tt.want, result.Status)
 			}

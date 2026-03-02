@@ -8,7 +8,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/ppiankov/runforge/internal/task"
+	"github.com/ppiankov/tokencontrol/internal/task"
 )
 
 var spinnerFrames = []string{"⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"}
@@ -140,7 +140,7 @@ func (lr *LiveReporter) buildLines(results map[string]*task.TaskResult) []string
 	spinner := spinnerFrames[lr.frame%len(spinnerFrames)]
 
 	var lines []string
-	lines = append(lines, fmt.Sprintf("runforge — %d tasks", total))
+	lines = append(lines, fmt.Sprintf("tokencontrol — %d tasks", total))
 	lines = append(lines, "")
 
 	taskLines := 0

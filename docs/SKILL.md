@@ -1,29 +1,29 @@
 ---
-name: runforge
+name: tokencontrol
 description: Dependency-aware parallel task runner for AI coding agents with multi-provider fallback, portfolio auditing, and autonomous operation
 user-invocable: false
-metadata: {"requires":{"bins":["runforge"]}}
+metadata: {"requires":{"bins":["tokencontrol"]}}
 ---
 
-# runforge — AI Agent Task Runner & Portfolio Auditor
+# tokencontrol — AI Agent Task Runner & Portfolio Auditor
 
-You have access to `runforge`, a dependency-aware parallel task runner for AI coding agents. It reads JSON task files, builds a DAG, executes tasks across repos using seven pluggable runner backends with multi-provider fallback cascades, and produces structured JSON reports. No cloud, all local.
+You have access to `tokencontrol`, a dependency-aware parallel task runner for AI coding agents. It reads JSON task files, builds a DAG, executes tasks across repos using seven pluggable runner backends with multi-provider fallback cascades, and produces structured JSON reports. No cloud, all local.
 
 ## Install
 
 ```bash
-brew install ppiankov/tap/runforge
+brew install ppiankov/tap/tokencontrol
 ```
 
 Or via Go:
 
 ```bash
-go install github.com/ppiankov/runforge/cmd/runforge@latest
+go install github.com/ppiankov/tokencontrol/cmd/tokencontrol@latest
 ```
 
 ## Setup
 
-Create `.runforge.yml` in your repos directory:
+Create `.tokencontrol.yml` in your repos directory:
 
 ```yaml
 repos_dir: /path/to/repos
@@ -49,40 +49,40 @@ runners:
 
 | Command | What it does |
 |---------|-------------|
-| `runforge scan` | Audit repos for structural, security, and quality issues |
-| `runforge scan --format tasks` | Generate agent-ready task file from scan findings |
-| `runforge generate` | Generate task file from work-orders.md in repos |
-| `runforge run` | Execute tasks in parallel with DAG scheduling |
-| `runforge run --dry-run` | Preview execution plan without running |
-| `runforge run --parallel-repo` | Enable git worktree isolation for same-repo parallelism |
-| `runforge rerun --run-dir DIR` | Retry failed/skipped tasks from a previous run |
-| `runforge status` | Show results of a completed run |
-| `runforge watch` | Monitor a running session in real-time (top-like TUI) |
-| `runforge verify --run-dir DIR` | Proofcheck a completed run (false positives, tests, lint) |
-| `runforge validate --tasks FILE` | Validate task file without running |
-| `runforge unlock --repo ORG/REPO` | Remove a stale repo lock |
-| `runforge graylist list` | Show graylisted runners |
-| `runforge graylist add NAME --model MODEL` | Graylist a runner:model pair |
-| `runforge graylist remove NAME --model MODEL` | Remove from graylist |
-| `runforge graylist clear` | Clear all graylist entries |
-| `runforge state list` | Show persistent task states |
-| `runforge state reset TASK-ID` | Reset a specific task state |
-| `runforge state clear` | Clear all task state |
-| `runforge sentinel loop` | Continuous daemon: scan, deduplicate, run, cooldown, repeat |
-| `runforge ingest --run-dir DIR` | Import external run results |
-| `runforge doctor` | Health check: runners, config, dependencies |
-| `runforge version` | Print version |
+| `tokencontrol scan` | Audit repos for structural, security, and quality issues |
+| `tokencontrol scan --format tasks` | Generate agent-ready task file from scan findings |
+| `tokencontrol generate` | Generate task file from work-orders.md in repos |
+| `tokencontrol run` | Execute tasks in parallel with DAG scheduling |
+| `tokencontrol run --dry-run` | Preview execution plan without running |
+| `tokencontrol run --parallel-repo` | Enable git worktree isolation for same-repo parallelism |
+| `tokencontrol rerun --run-dir DIR` | Retry failed/skipped tasks from a previous run |
+| `tokencontrol status` | Show results of a completed run |
+| `tokencontrol watch` | Monitor a running session in real-time (top-like TUI) |
+| `tokencontrol verify --run-dir DIR` | Proofcheck a completed run (false positives, tests, lint) |
+| `tokencontrol validate --tasks FILE` | Validate task file without running |
+| `tokencontrol unlock --repo ORG/REPO` | Remove a stale repo lock |
+| `tokencontrol graylist list` | Show graylisted runners |
+| `tokencontrol graylist add NAME --model MODEL` | Graylist a runner:model pair |
+| `tokencontrol graylist remove NAME --model MODEL` | Remove from graylist |
+| `tokencontrol graylist clear` | Clear all graylist entries |
+| `tokencontrol state list` | Show persistent task states |
+| `tokencontrol state reset TASK-ID` | Reset a specific task state |
+| `tokencontrol state clear` | Clear all task state |
+| `tokencontrol sentinel loop` | Continuous daemon: scan, deduplicate, run, cooldown, repeat |
+| `tokencontrol ingest --run-dir DIR` | Import external run results |
+| `tokencontrol doctor` | Health check: runners, config, dependencies |
+| `tokencontrol version` | Print version |
 
 ## Key Flags
 
-### runforge run
+### tokencontrol run
 
 | Flag | Default | Description |
 |------|---------|-------------|
-| `--tasks FILE` | `runforge.json` | Task file path (supports glob: `'runforge-*.json'`) |
+| `--tasks FILE` | `tokencontrol.json` | Task file path (supports glob: `'tokencontrol-*.json'`) |
 | `--workers N` | `4` | Max parallel runner processes |
 | `--repos-dir DIR` | `.` | Base directory containing repos |
-| `--config FILE` | `.runforge.yml` | Settings file |
+| `--config FILE` | `.tokencontrol.yml` | Settings file |
 | `--filter PATTERN` | | Only run tasks matching ID glob |
 | `--dry-run` | `false` | Show execution plan without running |
 | `--verify` | `false` | Run `make test && make lint` per repo after completion |
@@ -95,7 +95,7 @@ runners:
 | `--no-auto-commit` | `false` | Disable post-task auto-commit |
 | `--parallel-repo` | `false` | Enable worktree-based same-repo parallelism |
 
-### runforge scan
+### tokencontrol scan
 
 | Flag | Default | Description |
 |------|---------|-------------|
@@ -106,13 +106,13 @@ runners:
 | `--check CATS` | | Categories: structure, go, python, security, ci, quality |
 | `--output FILE` | stdout | Write to file |
 
-### runforge generate
+### tokencontrol generate
 
 | Flag | Default | Description |
 |------|---------|-------------|
 | `--repos-dir DIR` | `.` | Base directory to scan |
-| `--config FILE` | `.runforge.yml` | Inject runner profiles from config |
-| `--output FILE` | `runforge-tasks.json` | Output task file path |
+| `--config FILE` | `.tokencontrol.yml` | Inject runner profiles from config |
+| `--output FILE` | `tokencontrol-tasks.json` | Output task file path |
 | `--owner ORG` | (inferred) | GitHub owner for repo slugs |
 | `--runner NAME` | `codex` | Default runner for generated tasks |
 | `--filter-repo NAME` | | Only scan this repo |
@@ -123,19 +123,19 @@ For programmatic use, always use `--format json` or parse `report.json`:
 
 ```bash
 # Full pipeline: scan, generate, run
-runforge scan --repos-dir ~/dev/repos --format tasks --output scan-tasks.json
-runforge run --tasks scan-tasks.json --repos-dir ~/dev/repos --workers 6
+tokencontrol scan --repos-dir ~/dev/repos --format tasks --output scan-tasks.json
+tokencontrol run --tasks scan-tasks.json --repos-dir ~/dev/repos --workers 6
 ```
 
 ### JSON Output — report.json
 
-After each run, `report.json` is written to the run directory (`.runforge/<timestamp>/report.json`):
+After each run, `report.json` is written to the run directory (`.tokencontrol/<timestamp>/report.json`):
 
 ```json
 {
   "run_id": "a1b2c3d4e5f6",
   "timestamp": "2026-02-20T14:37:50Z",
-  "tasks_files": ["runforge-tasks.json"],
+  "tasks_files": ["tokencontrol-tasks.json"],
   "workers": 6,
   "repos_dir": "/path/to/repos",
   "results": {
@@ -185,23 +185,23 @@ Task states: 0=pending, 1=ready, 2=running, 3=completed, 4=failed, 5=skipped, 6=
 
 ```bash
 # List failed tasks from a run
-cat .runforge/latest/report.json | jq '[.results[] | select(.state == 4)] | .[].task_id'
+cat .tokencontrol/latest/report.json | jq '[.results[] | select(.state == 4)] | .[].task_id'
 
 # Get tasks that used fallback runners
-cat .runforge/latest/report.json | jq '[.results[] | select(.attempts | length > 1)] | .[].task_id'
+cat .tokencontrol/latest/report.json | jq '[.results[] | select(.attempts | length > 1)] | .[].task_id'
 
 # Scan for critical issues only
-runforge scan --repos-dir ~/dev/repos --format json --severity critical | jq '.summary'
+tokencontrol scan --repos-dir ~/dev/repos --format json --severity critical | jq '.summary'
 
 # Generate fix tasks from scan and execute
-runforge scan --repos-dir ~/dev/repos --format tasks --output fixes.json
-runforge run --tasks fixes.json --repos-dir ~/dev/repos --workers 4
+tokencontrol scan --repos-dir ~/dev/repos --format tasks --output fixes.json
+tokencontrol run --tasks fixes.json --repos-dir ~/dev/repos --workers 4
 
 # Rerun failures from last run
-runforge rerun --run-dir .runforge/latest
+tokencontrol rerun --run-dir .tokencontrol/latest
 
 # Check graylist status
-runforge graylist list
+tokencontrol graylist list
 ```
 
 ## Task File Format
@@ -238,18 +238,18 @@ Runner types: `codex`, `claude`, `gemini`, `opencode`, `cline`, `qwen`, `script`
 
 ## Typical Workflow
 
-1. **Scan repos:** `runforge scan --repos-dir ~/dev/repos --format tasks --output scan-tasks.json`
-2. **Or generate from WOs:** `runforge generate --repos-dir ~/dev/repos --config .runforge.yml`
-3. **Preview:** `runforge run --dry-run --tasks runforge-tasks.json`
-4. **Execute:** `runforge run --tasks runforge-tasks.json --repos-dir ~/dev/repos --workers 6`
-5. **Monitor:** `runforge watch` (in another terminal)
-6. **Review:** `runforge status` then `runforge verify --run-dir .runforge/latest`
-7. **Retry failures:** `runforge rerun --run-dir .runforge/latest`
-8. **Continuous mode:** `runforge sentinel loop --repos-dir ~/dev/repos --cooldown 30m`
+1. **Scan repos:** `tokencontrol scan --repos-dir ~/dev/repos --format tasks --output scan-tasks.json`
+2. **Or generate from WOs:** `tokencontrol generate --repos-dir ~/dev/repos --config .tokencontrol.yml`
+3. **Preview:** `tokencontrol run --dry-run --tasks tokencontrol-tasks.json`
+4. **Execute:** `tokencontrol run --tasks tokencontrol-tasks.json --repos-dir ~/dev/repos --workers 6`
+5. **Monitor:** `tokencontrol watch` (in another terminal)
+6. **Review:** `tokencontrol status` then `tokencontrol verify --run-dir .tokencontrol/latest`
+7. **Retry failures:** `tokencontrol rerun --run-dir .tokencontrol/latest`
+8. **Continuous mode:** `tokencontrol sentinel loop --repos-dir ~/dev/repos --cooldown 30m`
 
 ## Runner Cascade
 
-When a runner fails or is rate-limited, runforge tries the next in the cascade:
+When a runner fails or is rate-limited, tokencontrol tries the next in the cascade:
 
 ```
 codex (primary) ──fail──> zai (fallback 1) ──fail──> claude (fallback 2)
@@ -267,7 +267,7 @@ Cascade filtering removes unsuitable runners automatically:
 - `1` — one or more tasks failed
 - `4` — all tasks hit API rate limits
 
-## What runforge Does NOT Do
+## What tokencontrol Does NOT Do
 
 - Does not provide its own AI — orchestrates external runners only
 - Does not replace CI/CD — designed for AI agent task orchestration

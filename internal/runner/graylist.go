@@ -37,13 +37,13 @@ func graylistKey(runner, model string) string {
 	return runner + ":" + model
 }
 
-// DefaultGraylistPath returns ~/.runforge/graylist.json.
+// DefaultGraylistPath returns ~/.tokencontrol/graylist.json.
 func DefaultGraylistPath() string {
 	home, err := os.UserHomeDir()
 	if err != nil {
 		return ""
 	}
-	return filepath.Join(home, ".runforge", "graylist.json")
+	return filepath.Join(home, ".tokencontrol", "graylist.json")
 }
 
 // NewRunnerGraylist creates a new empty graylist.

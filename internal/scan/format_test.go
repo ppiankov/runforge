@@ -28,7 +28,7 @@ func TestTextFormatter_NoColor(t *testing.T) {
 	}
 
 	out := buf.String()
-	if !strings.Contains(out, "runforge scan") {
+	if !strings.Contains(out, "tokencontrol scan") {
 		t.Error("missing header")
 	}
 	if !strings.Contains(out, "2 repos") {

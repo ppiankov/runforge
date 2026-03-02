@@ -4,7 +4,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/ppiankov/runforge/internal/task"
+	"github.com/ppiankov/tokencontrol/internal/task"
 )
 
 // Phase represents the current sentinel loop phase.

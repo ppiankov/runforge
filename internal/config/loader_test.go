@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/ppiankov/runforge/internal/task"
+	"github.com/ppiankov/tokencontrol/internal/task"
 )
 
 func TestLoad_ValidFile(t *testing.T) {

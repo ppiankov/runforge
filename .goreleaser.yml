@@ -1,15 +1,15 @@
 version: 2
 
 builds:
-  - main: ./cmd/runforge/
-    binary: runforge
+  - main: ./cmd/tokencontrol/
+    binary: tokencontrol
     env:
       - CGO_ENABLED=0
     ldflags:
       - -s -w
-      - -X github.com/ppiankov/runforge/internal/cli.Version={{.Version}}
-      - -X github.com/ppiankov/runforge/internal/cli.Commit={{.ShortCommit}}
-      - -X github.com/ppiankov/runforge/internal/cli.BuildDate={{.CommitDate}}
+      - -X github.com/ppiankov/tokencontrol/internal/cli.Version={{.Version}}
+      - -X github.com/ppiankov/tokencontrol/internal/cli.Commit={{.ShortCommit}}
+      - -X github.com/ppiankov/tokencontrol/internal/cli.BuildDate={{.CommitDate}}
     goos:
       - linux
       - darwin
@@ -39,7 +39,7 @@ changelog:
 
 dockers:
   - image_templates:
-      - "ghcr.io/ppiankov/runforge:{{ .Version }}-amd64"
+      - "ghcr.io/ppiankov/tokencontrol:{{ .Version }}-amd64"
     dockerfile: Dockerfile.goreleaser
     use: buildx
     build_flag_templates:
@@ -47,7 +47,7 @@ dockers:
     goarch: amd64
 
   - image_templates:
-      - "ghcr.io/ppiankov/runforge:{{ .Version }}-arm64"
+      - "ghcr.io/ppiankov/tokencontrol:{{ .Version }}-arm64"
     dockerfile: Dockerfile.goreleaser
     use: buildx
     build_flag_templates:
@@ -60,21 +60,21 @@ brews:
       name: homebrew-tap
       token: "{{ .Env.HOMEBREW_TAP_TOKEN }}"
     directory: Formula
-    homepage: "https://github.com/ppiankov/runforge"
+    homepage: "https://github.com/ppiankov/tokencontrol"
     description: "Dependency-aware parallel task runner for AI coding agents"
     license: BUSL-1.1
     install: |
-      bin.install "runforge"
+      bin.install "tokencontrol"
     test: |
-      system "#{bin}/runforge", "version"
+      system "#{bin}/tokencontrol", "version"
 
 docker_manifests:
-  - name_template: "ghcr.io/ppiankov/runforge:{{ .Version }}"
+  - name_template: "ghcr.io/ppiankov/tokencontrol:{{ .Version }}"
     image_templates:
-      - "ghcr.io/ppiankov/runforge:{{ .Version }}-amd64"
-      - "ghcr.io/ppiankov/runforge:{{ .Version }}-arm64"
+      - "ghcr.io/ppiankov/tokencontrol:{{ .Version }}-amd64"
+      - "ghcr.io/ppiankov/tokencontrol:{{ .Version }}-arm64"
 
-  - name_template: "ghcr.io/ppiankov/runforge:latest"
+  - name_template: "ghcr.io/ppiankov/tokencontrol:latest"
     image_templates:
-      - "ghcr.io/ppiankov/runforge:{{ .Version }}-amd64"
-      - "ghcr.io/ppiankov/runforge:{{ .Version }}-arm64"
+      - "ghcr.io/ppiankov/tokencontrol:{{ .Version }}-amd64"
+      - "ghcr.io/ppiankov/tokencontrol:{{ .Version }}-arm64"

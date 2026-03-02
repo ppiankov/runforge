@@ -13,9 +13,9 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/ppiankov/runforge/internal/config"
-	"github.com/ppiankov/runforge/internal/generate"
-	"github.com/ppiankov/runforge/internal/task"
+	"github.com/ppiankov/tokencontrol/internal/config"
+	"github.com/ppiankov/tokencontrol/internal/generate"
+	"github.com/ppiankov/tokencontrol/internal/task"
 )
 
 func newGenerateCmd() *cobra.Command {
@@ -46,7 +46,7 @@ func newGenerateCmd() *cobra.Command {
 	}
 
 	cmd.Flags().StringVar(&reposDir, "repos-dir", ".", "base directory containing repos")
-	cmd.Flags().StringVar(&output, "output", "", "output file path (default: <repos-dir>/runforge-tasks.json)")
+	cmd.Flags().StringVar(&output, "output", "", "output file path (default: <repos-dir>/tokencontrol-tasks.json)")
 	cmd.Flags().StringVar(&owner, "owner", "", "GitHub owner/org (inferred from git remote if omitted)")
 	cmd.Flags().StringVar(&filterRepo, "filter-repo", "", "only scan this repo name")
 	cmd.Flags().StringVar(&defaultRunner, "runner", "codex", "default runner for generated tasks")
@@ -61,7 +61,7 @@ func generateTasks(reposDir, output, owner, filterRepo, defaultRunner string, cf
 	}
 
 	if output == "" {
-		output = filepath.Join(reposDir, "runforge-tasks.json")
+		output = filepath.Join(reposDir, "tokencontrol-tasks.json")
 	}
 
 	entries, err := os.ReadDir(reposDir)
@@ -200,7 +200,7 @@ func generateTasks(reposDir, output, owner, filterRepo, defaultRunner string, cf
 	}
 
 	fmt.Printf("Generated %d tasks from %d repos → %s\n", len(tasks), repoCount, output)
-	fmt.Printf("\nTo run:\n  runforge run --tasks %s --tui minimal\n", output)
+	fmt.Printf("\nTo run:\n  tokencontrol run --tasks %s --tui minimal\n", output)
 	return nil
 }
 

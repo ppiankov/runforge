@@ -1102,9 +1102,9 @@ func (c *qualityStaleWOCheck) Run(r *RepoInfo) []Finding {
 	p.line(fmt.Sprintf("Execute %d pending work orders from docs/work-orders.md.", planned))
 	p.blank()
 	p.line("Steps:")
-	p.line(fmt.Sprintf("1. Run: runforge generate --repos-dir <dir> --filter-repo %s", r.Name))
+	p.line(fmt.Sprintf("1. Run: tokencontrol generate --repos-dir <dir> --filter-repo %s", r.Name))
 	p.line("2. Review generated task file")
-	p.line("3. Run: runforge run --tasks <generated-file>.json")
+	p.line("3. Run: tokencontrol run --tasks <generated-file>.json")
 	p.blank()
 	p.line("Or manually review each WO and mark completed ones as [DONE].")
 	p.constraints()
@@ -1113,7 +1113,7 @@ func (c *qualityStaleWOCheck) Run(r *RepoInfo) []Finding {
 		Repo: r.Name, Check: c.ID(), Category: c.Category(),
 		Severity:   SeverityInfo,
 		Message:    fmt.Sprintf("%d planned work orders in docs/work-orders.md", planned),
-		Suggestion: fmt.Sprintf("Review %d pending work orders in docs/work-orders.md. Consider generating runforge tasks with 'runforge generate' to execute them.", planned),
+		Suggestion: fmt.Sprintf("Review %d pending work orders in docs/work-orders.md. Consider generating tokencontrol tasks with 'tokencontrol generate' to execute them.", planned),
 		Prompt:     p.String(),
 	}}
 }
@@ -1125,7 +1125,7 @@ func (c *qualityOrphanedTasksCheck) Category() string         { return "quality"
 func (c *qualityOrphanedTasksCheck) Applies(_ *RepoInfo) bool { return true }
 
 func (c *qualityOrphanedTasksCheck) Run(r *RepoInfo) []Finding {
-	matches, _ := filepath.Glob(filepath.Join(r.Path, "runforge-*.json"))
+	matches, _ := filepath.Glob(filepath.Join(r.Path, "tokencontrol-*.json"))
 	if len(matches) == 0 {
 		return nil
 	}
@@ -1135,7 +1135,7 @@ func (c *qualityOrphanedTasksCheck) Run(r *RepoInfo) []Finding {
 	}
 
 	p := newPrompt()
-	p.line(fmt.Sprintf("Process %d orphaned runforge task file(s) in %s.", len(matches), r.Name))
+	p.line(fmt.Sprintf("Process %d orphaned tokencontrol task file(s) in %s.", len(matches), r.Name))
 	p.blank()
 	p.line("Files found:")
 	for _, name := range names {
@@ -1143,15 +1143,15 @@ func (c *qualityOrphanedTasksCheck) Run(r *RepoInfo) []Finding {
 	}
 	p.blank()
 	p.line("Options:")
-	p.line(fmt.Sprintf("  Run:    runforge run --tasks '%s/runforge-*.json'", r.Name))
+	p.line(fmt.Sprintf("  Run:    tokencontrol run --tasks '%s/tokencontrol-*.json'", r.Name))
 	p.line("  Clean:  rm <file>.json  (if tasks are already completed)")
 	p.constraints()
 
 	return []Finding{{
 		Repo: r.Name, Check: c.ID(), Category: c.Category(),
 		Severity:   SeverityWarning,
-		Message:    fmt.Sprintf("%d orphaned runforge task file(s): %s", len(matches), strings.Join(names, ", ")),
-		Suggestion: fmt.Sprintf("Run pending tasks with 'runforge run --tasks %s/runforge-*.json' or remove completed task files. Orphaned task files indicate work that was planned but not executed.", r.Name),
+		Message:    fmt.Sprintf("%d orphaned tokencontrol task file(s): %s", len(matches), strings.Join(names, ", ")),
+		Suggestion: fmt.Sprintf("Run pending tasks with 'tokencontrol run --tasks %s/tokencontrol-*.json' or remove completed task files. Orphaned task files indicate work that was planned but not executed.", r.Name),
 		Prompt:     p.String(),
 	}}
 }

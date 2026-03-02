@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/ppiankov/runforge/internal/runner"
+	"github.com/ppiankov/tokencontrol/internal/runner"
 )
 
 // mustMkdirAll is a test helper that creates directories or fails the test.
@@ -249,8 +249,8 @@ func TestBuildLines_Layout(t *testing.T) {
 		t.Fatal("expected non-empty output")
 	}
 
-	if !strings.Contains(lines[0], "runforge watch") {
-		t.Errorf("expected header to contain 'runforge watch', got: %s", lines[0])
+	if !strings.Contains(lines[0], "tokencontrol watch") {
+		t.Errorf("expected header to contain 'tokencontrol watch', got: %s", lines[0])
 	}
 
 	found := false

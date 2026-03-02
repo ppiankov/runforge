@@ -61,7 +61,7 @@ func TestMissionControl_ViewRenders(t *testing.T) {
 	m.snapshot = state.Snapshot()
 
 	view := m.View()
-	if !strings.Contains(view, "runforge sentinel") {
+	if !strings.Contains(view, "tokencontrol sentinel") {
 		t.Error("view should contain header")
 	}
 	if !strings.Contains(view, "Overview") {

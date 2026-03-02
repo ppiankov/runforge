@@ -151,7 +151,7 @@ type TaskResult struct {
 	ConnectivityError string `json:"connectivity_error,omitempty"` // TLS/DNS/connection error classification
 
 	FalsePositive bool `json:"false_positive,omitempty"` // completed with 0 events (no real work)
-	AutoCommitted bool `json:"auto_committed,omitempty"` // runforge committed changes the agent left unstaged
+	AutoCommitted bool `json:"auto_committed,omitempty"` // tokencontrol committed changes the agent left unstaged
 
 	WorktreeBranch string `json:"worktree_branch,omitempty"` // branch name when worktree isolation used
 	MergeConflict  bool   `json:"merge_conflict,omitempty"`  // FF merge back to main failed
@@ -170,7 +170,7 @@ type ReviewResult struct {
 	Error    string        `json:"error,omitempty"`
 }
 
-// RunReport is the final output of a runforge execution.
+// RunReport is the final output of a tokencontrol execution.
 type RunReport struct {
 	RunID          string                 `json:"run_id"`
 	ParentRunID    string                 `json:"parent_run_id,omitempty"`

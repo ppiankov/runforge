@@ -8,7 +8,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 
-	"github.com/ppiankov/runforge/internal/task"
+	"github.com/ppiankov/tokencontrol/internal/task"
 )
 
 var spinnerChars = []string{"⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"}
@@ -27,7 +27,7 @@ var (
 
 type tickMsg time.Time
 
-// TUIModel is the Bubbletea model for runforge live display.
+// TUIModel is the Bubbletea model for tokencontrol live display.
 type TUIModel struct {
 	graph      *task.Graph
 	getResults func() map[string]*task.TaskResult
@@ -177,7 +177,7 @@ func (m TUIModel) View() string {
 	// tasks not yet in results are queued
 	queued += total - len(m.results)
 
-	header := fmt.Sprintf("runforge — %d tasks", total)
+	header := fmt.Sprintf("tokencontrol — %d tasks", total)
 	if m.paused {
 		header += "  " + pauseStyle.Render("⏸ PAUSED")
 	}

@@ -11,7 +11,7 @@ import (
 
 // RunnerBlacklist tracks runners that should be skipped due to rate limiting.
 // It is safe for concurrent use. Supports persistence to disk so state
-// survives across runforge invocations.
+// survives across tokencontrol invocations.
 type RunnerBlacklist struct {
 	mu    sync.RWMutex
 	until map[string]time.Time // runner name → blocked until
@@ -31,13 +31,13 @@ type blacklistEntry struct {
 	ResetsAt time.Time `json:"resets_at"`
 }
 
-// DefaultBlacklistPath returns ~/.runforge/blacklist.json.
+// DefaultBlacklistPath returns ~/.tokencontrol/blacklist.json.
 func DefaultBlacklistPath() string {
 	home, err := os.UserHomeDir()
 	if err != nil {
 		return ""
 	}
-	return filepath.Join(home, ".runforge", "blacklist.json")
+	return filepath.Join(home, ".tokencontrol", "blacklist.json")
 }
 
 // LoadBlacklist reads a persisted blacklist from disk. Only entries with

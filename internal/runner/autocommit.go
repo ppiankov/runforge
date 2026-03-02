@@ -8,7 +8,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/ppiankov/runforge/internal/task"
+	"github.com/ppiankov/tokencontrol/internal/task"
 )
 
 const autoCommitTimeout = 30 * time.Second

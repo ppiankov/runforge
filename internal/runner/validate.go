@@ -5,7 +5,7 @@ import (
 	"log/slog"
 	"sort"
 
-	"github.com/ppiankov/runforge/internal/task"
+	"github.com/ppiankov/tokencontrol/internal/task"
 )
 
 // ModelValidator is an optional interface that runners can implement to

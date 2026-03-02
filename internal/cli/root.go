@@ -21,9 +21,9 @@ var (
 
 func NewRootCmd() *cobra.Command {
 	root := &cobra.Command{
-		Use:   "runforge",
+		Use:   "tokencontrol",
 		Short: "Dependency-aware parallel task runner",
-		Long:  "runforge reads a task file and orchestrates parallel task runner processes with dependency-aware scheduling.",
+		Long:  "tokencontrol reads a task file and orchestrates parallel task runner processes with dependency-aware scheduling.",
 		PersistentPreRun: func(cmd *cobra.Command, args []string) {
 			level := slog.LevelWarn
 			if verbose {
@@ -38,7 +38,7 @@ func NewRootCmd() *cobra.Command {
 	}
 
 	root.PersistentFlags().BoolVarP(&verbose, "verbose", "v", false, "enable debug logging")
-	root.PersistentFlags().StringVar(&configFile, "config", ".runforge.yml", "path to config file")
+	root.PersistentFlags().StringVar(&configFile, "config", ".tokencontrol.yml", "path to config file")
 
 	root.AddCommand(newRunCmd())
 	root.AddCommand(newRerunCmd())

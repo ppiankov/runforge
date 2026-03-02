@@ -6,7 +6,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/ppiankov/runforge/internal/task"
+	"github.com/ppiankov/tokencontrol/internal/task"
 )
 
 func buildTestGraph(t *testing.T, tasks []task.Task) *task.Graph {
@@ -163,8 +163,8 @@ func TestWriteSARIFReport_ValidStructure(t *testing.T) {
 	if sarif.Version != "2.1.0" {
 		t.Errorf("expected version '2.1.0', got %q", sarif.Version)
 	}
-	if sarif.Runs[0].Tool.Driver.Name != "runforge" {
-		t.Errorf("expected tool name 'runforge', got %q", sarif.Runs[0].Tool.Driver.Name)
+	if sarif.Runs[0].Tool.Driver.Name != "tokencontrol" {
+		t.Errorf("expected tool name 'tokencontrol', got %q", sarif.Runs[0].Tool.Driver.Name)
 	}
 }
 

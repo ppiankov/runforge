@@ -104,7 +104,7 @@ func TestLoadSettings_Duration(t *testing.T) {
 
 func writeTemp(t *testing.T, content string) string {
 	t.Helper()
-	path := filepath.Join(t.TempDir(), ".runforge.yml")
+	path := filepath.Join(t.TempDir(), ".tokencontrol.yml")
 	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
 		t.Fatal(err)
 	}

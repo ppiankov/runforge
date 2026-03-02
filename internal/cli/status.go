@@ -8,7 +8,7 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/ppiankov/runforge/internal/task"
+	"github.com/ppiankov/tokencontrol/internal/task"
 )
 
 func newStatusCmd() *cobra.Command {
@@ -29,18 +29,18 @@ func newStatusCmd() *cobra.Command {
 		},
 	}
 
-	cmd.Flags().StringVar(&runDir, "run-dir", "", "path to .runforge/<timestamp> directory (auto-detects latest if omitted)")
+	cmd.Flags().StringVar(&runDir, "run-dir", "", "path to .tokencontrol/<timestamp> directory (auto-detects latest if omitted)")
 
 	return cmd
 }
 
-// findLatestRunDir scans baseDir/.runforge/ for the most recent run
+// findLatestRunDir scans baseDir/.tokencontrol/ for the most recent run
 // directory that contains a report.json.
 func findLatestRunDir(baseDir string) (string, error) {
-	rfDir := fmt.Sprintf("%s/.runforge", baseDir)
+	rfDir := fmt.Sprintf("%s/.tokencontrol", baseDir)
 	entries, err := os.ReadDir(rfDir)
 	if err != nil {
-		return "", fmt.Errorf("cannot read .runforge directory: %w", err)
+		return "", fmt.Errorf("cannot read .tokencontrol directory: %w", err)
 	}
 
 	// entries are sorted alphabetically; timestamps sort chronologically

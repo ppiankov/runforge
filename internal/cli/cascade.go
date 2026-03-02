@@ -11,8 +11,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/ppiankov/runforge/internal/runner"
-	"github.com/ppiankov/runforge/internal/task"
+	"github.com/ppiankov/tokencontrol/internal/runner"
+	"github.com/ppiankov/tokencontrol/internal/task"
 )
 
 // RunWithCascade attempts to run a task using a sequence of runners.

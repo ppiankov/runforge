@@ -8,8 +8,8 @@ import (
 	"os/exec"
 	"strings"
 
-	"github.com/ppiankov/runforge/internal/config"
-	"github.com/ppiankov/runforge/internal/runner"
+	"github.com/ppiankov/tokencontrol/internal/config"
+	"github.com/ppiankov/tokencontrol/internal/runner"
 	"github.com/spf13/cobra"
 )
 
@@ -137,7 +137,7 @@ func runDoctor(env *doctorEnv, configPath string) *DoctorResult {
 }
 
 func checkVersion(env *doctorEnv) DoctorCheck {
-	return DoctorCheck{Name: "runforge-version", Status: "ok", Message: env.version}
+	return DoctorCheck{Name: "tokencontrol-version", Status: "ok", Message: env.version}
 }
 
 func checkRunner(env *doctorEnv, name, binary string) DoctorCheck {
@@ -230,14 +230,14 @@ func formatDoctorJSON(w io.Writer, result *DoctorResult) error {
 // formatLabel converts check names to human-readable labels.
 func formatLabel(name string) string {
 	switch {
-	case name == "runforge-version":
-		return "runforge version"
+	case name == "tokencontrol-version":
+		return "tokencontrol version"
 	case strings.HasPrefix(name, "runner-"):
 		return "Runner: " + strings.TrimPrefix(name, "runner-")
 	case strings.HasPrefix(name, "cred-"):
 		return credLabel(strings.TrimPrefix(name, "cred-"))
 	case name == "config":
-		return "Config (.runforge.yml)"
+		return "Config (.tokencontrol.yml)"
 	case name == "graylist":
 		return "Graylist"
 	case strings.HasPrefix(name, "companion-"):

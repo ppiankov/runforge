@@ -11,7 +11,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/ppiankov/runforge/internal/runner"
+	"github.com/ppiankov/tokencontrol/internal/runner"
 )
 
 // TaskSnapshot holds the observed state of a single task from disk.
@@ -267,7 +267,7 @@ func (wr *WatchReporter) buildLines() []string {
 	var lines []string
 
 	// header
-	lines = append(lines, fmt.Sprintf("runforge watch — %s (%s %s)", runName, runState, elapsed))
+	lines = append(lines, fmt.Sprintf("tokencontrol watch — %s (%s %s)", runName, runState, elapsed))
 	lines = append(lines, fmt.Sprintf("tasks: %s%d running%s, %s%d completed%s, %s%d failed%s, %s%d queued%s",
 		wr.c(colorCyan), len(running), wr.c(colorReset),
 		wr.c(colorGreen), len(completed), wr.c(colorReset),

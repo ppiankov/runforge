@@ -7,7 +7,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/ppiankov/runforge/internal/task"
+	"github.com/ppiankov/tokencontrol/internal/task"
 )
 
 // CompletedTask records when and how a task was completed.
@@ -29,7 +29,7 @@ type CompletionTracker struct {
 // DefaultTrackerPath returns the default path for the completion tracker.
 func DefaultTrackerPath() string {
 	home, _ := os.UserHomeDir()
-	return filepath.Join(home, ".runforge", "sentinel", "completed.json")
+	return filepath.Join(home, ".tokencontrol", "sentinel", "completed.json")
 }
 
 // NewCompletionTracker creates a tracker that persists to the given path.

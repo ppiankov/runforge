@@ -6,8 +6,8 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/ppiankov/runforge/internal/config"
-	"github.com/ppiankov/runforge/internal/task"
+	"github.com/ppiankov/tokencontrol/internal/config"
+	"github.com/ppiankov/tokencontrol/internal/task"
 )
 
 func newValidateTasksCmd() *cobra.Command {
@@ -24,7 +24,7 @@ func newValidateTasksCmd() *cobra.Command {
 		},
 	}
 
-	cmd.Flags().StringVar(&tasksFile, "tasks", "runforge.json", "path to tasks JSON file")
+	cmd.Flags().StringVar(&tasksFile, "tasks", "tokencontrol.json", "path to tasks JSON file")
 	cmd.Flags().StringVar(&reposDir, "repos-dir", "", "verify repos exist on disk (optional)")
 
 	return cmd

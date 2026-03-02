@@ -7,7 +7,7 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 
-	"github.com/ppiankov/runforge/internal/task"
+	"github.com/ppiankov/tokencontrol/internal/task"
 )
 
 type tuiTickMsg time.Time
@@ -148,7 +148,7 @@ func (m MissionControlModel) renderHeader() string {
 		phase += " " + dimStyle.Render("("+snap.PhaseMsg+")")
 	}
 
-	return headerStyle.Render("runforge sentinel") +
+	return headerStyle.Render("tokencontrol sentinel") +
 		dimStyle.Render(fmt.Sprintf(" — %s — cycle %d", uptime, snap.TotalCycles)) +
 		"\n" + spinner + phase
 }

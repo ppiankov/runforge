@@ -18,11 +18,11 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/ppiankov/neurorouter"
-	"github.com/ppiankov/runforge/internal/config"
-	"github.com/ppiankov/runforge/internal/reporter"
-	"github.com/ppiankov/runforge/internal/runner"
-	"github.com/ppiankov/runforge/internal/state"
-	"github.com/ppiankov/runforge/internal/task"
+	"github.com/ppiankov/tokencontrol/internal/config"
+	"github.com/ppiankov/tokencontrol/internal/reporter"
+	"github.com/ppiankov/tokencontrol/internal/runner"
+	"github.com/ppiankov/tokencontrol/internal/state"
+	"github.com/ppiankov/tokencontrol/internal/task"
 )
 
 func newRunCmd() *cobra.Command {
@@ -73,7 +73,7 @@ func newRunCmd() *cobra.Command {
 		},
 	}
 
-	cmd.Flags().StringVar(&tasksFile, "tasks", "runforge.json", "path to tasks JSON file (supports glob patterns)")
+	cmd.Flags().StringVar(&tasksFile, "tasks", "tokencontrol.json", "path to tasks JSON file (supports glob patterns)")
 	cmd.Flags().IntVar(&workers, "workers", 4, "max parallel runner processes")
 	cmd.Flags().BoolVar(&verify, "verify", false, "run make test && make lint per repo after completion")
 	cmd.Flags().StringVar(&reposDir, "repos-dir", ".", "base directory containing repos")
@@ -141,7 +141,7 @@ func runTasks(tasksFile string, workers int, verify bool, reposDir, filter strin
 		}
 	}
 	if len(tasks) == 0 {
-		fmt.Println("All tasks already completed (use --retry to re-execute failed tasks, or 'runforge state clear' to reset)")
+		fmt.Println("All tasks already completed (use --retry to re-execute failed tasks, or 'tokencontrol state clear' to reset)")
 		return nil
 	}
 
@@ -314,7 +314,7 @@ func executeRun(cfg execRunConfig) (*execRunResult, error) {
 	textRep := reporter.NewTextReporter(os.Stdout, isTTY)
 
 	// prepare run directory
-	runDir := filepath.Join(".runforge", time.Now().Format("20060102-150405"))
+	runDir := filepath.Join(".tokencontrol", time.Now().Format("20060102-150405"))
 	if err := os.MkdirAll(runDir, 0o755); err != nil {
 		return nil, fmt.Errorf("create run dir: %w", err)
 	}
@@ -345,7 +345,7 @@ func executeRun(cfg execRunConfig) (*execRunResult, error) {
 		}
 		srv := neurorouter.NewProxy(proxyCfg)
 		if _, err := srv.Start(); err != nil {
-			// non-fatal: another runforge process may already own the port
+			// non-fatal: another tokencontrol process may already own the port
 			slog.Warn("proxy start failed (may already be running)", "error", err)
 		} else {
 			defer func() {
@@ -845,7 +845,7 @@ func isTerminal() bool {
 	return fi.Mode()&os.ModeCharDevice != 0
 }
 
-const statusDir = "/tmp/runforge-status.d"
+const statusDir = "/tmp/tokencontrol-status.d"
 
 // statusFilePath returns the per-process status file path.
 func statusFilePath() string {
@@ -853,7 +853,7 @@ func statusFilePath() string {
 }
 
 // writeStatusFile writes a one-line status to a per-PID file for external consumers (e.g. statusline).
-// Multiple runforge processes write separate files; the statusline aggregates them.
+// Multiple tokencontrol processes write separate files; the statusline aggregates them.
 func writeStatusFile(total int, results map[string]*task.TaskResult) {
 	var running, completed, failed, rateLimited int
 	for _, r := range results {
@@ -961,7 +961,7 @@ func autoGraylistRunners(results map[string]*task.TaskResult, graylist *runner.R
 			fmt.Fprintf(os.Stdout, "  %s already graylisted (%d more false positives)\n", label, count)
 		}
 	}
-	fmt.Fprintf(os.Stdout, "  Use 'runforge graylist list' to view, 'runforge graylist remove <runner>' to reinstate\n")
+	fmt.Fprintf(os.Stdout, "  Use 'tokencontrol graylist list' to view, 'tokencontrol graylist remove <runner>' to reinstate\n")
 }
 
 // commitInstruction is appended to all agent-bound prompts to ensure agents

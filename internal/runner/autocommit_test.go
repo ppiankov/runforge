@@ -8,7 +8,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/ppiankov/runforge/internal/task"
+	"github.com/ppiankov/tokencontrol/internal/task"
 )
 
 // initGitRepo creates a temp git repo with an initial commit.

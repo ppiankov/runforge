@@ -8,7 +8,7 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/ppiankov/runforge/internal/runner"
+	"github.com/ppiankov/tokencontrol/internal/runner"
 )
 
 func newGraylistCmd() *cobra.Command {
@@ -25,15 +25,15 @@ Entries are model-aware: graylisting "deepseek" with model "deepseek-chat"
 does NOT block "deepseek" with model "deepseek-reasoner". Use --model to
 target a specific model, or omit it to block all models for that runner.
 
-Detection: after each task completes, runforge checks events.jsonl. If the
+Detection: after each task completes, tokencontrol checks events.jsonl. If the
 file is empty or missing, the task is flagged as a false positive and the
 runner+model pair is auto-graylisted.
 
-To reinstate a runner: runforge graylist remove <runner> [--model <model>]
-To view all graylisted runners: runforge graylist list
-To clear all entries: runforge graylist clear
+To reinstate a runner: tokencontrol graylist remove <runner> [--model <model>]
+To view all graylisted runners: tokencontrol graylist list
+To clear all entries: tokencontrol graylist clear
 
-Stored in: ~/.runforge/graylist.json`,
+Stored in: ~/.tokencontrol/graylist.json`,
 	}
 
 	cmd.AddCommand(newGraylistListCmd())

@@ -3,7 +3,7 @@ package state
 import (
 	"log/slog"
 
-	"github.com/ppiankov/runforge/internal/task"
+	"github.com/ppiankov/tokencontrol/internal/task"
 )
 
 // SkippedTask records why a task was filtered out by state tracking.

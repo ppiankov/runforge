@@ -12,9 +12,9 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/spf13/cobra"
 
-	"github.com/ppiankov/runforge/internal/config"
-	"github.com/ppiankov/runforge/internal/sentinel"
-	"github.com/ppiankov/runforge/internal/task"
+	"github.com/ppiankov/tokencontrol/internal/config"
+	"github.com/ppiankov/tokencontrol/internal/sentinel"
+	"github.com/ppiankov/tokencontrol/internal/task"
 )
 
 func newSentinelLoopCmd() *cobra.Command {

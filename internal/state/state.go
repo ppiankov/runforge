@@ -41,7 +41,7 @@ type Tracker struct {
 
 // DefaultPath returns the default state file path.
 func DefaultPath() string {
-	return filepath.Join(".runforge", "state.json")
+	return filepath.Join(".tokencontrol", "state.json")
 }
 
 // Load reads the state file from disk. Returns an empty tracker if the file

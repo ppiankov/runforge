@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/ppiankov/runforge/internal/task"
+	"github.com/ppiankov/tokencontrol/internal/task"
 )
 
 func TestScriptRunner_Success(t *testing.T) {

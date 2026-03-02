@@ -10,7 +10,7 @@ import (
 	"time"
 )
 
-// IngestPayload is the handoff from nullbot approve to runforge ingest.
+// IngestPayload is the handoff from nullbot approve to tokencontrol ingest.
 // Same JSON schema as chainwatch/internal/ingest — independent Go types.
 type IngestPayload struct {
 	Version       string              `json:"version"`

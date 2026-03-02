@@ -11,9 +11,9 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/ppiankov/runforge/internal/ingest"
-	"github.com/ppiankov/runforge/internal/runner"
-	"github.com/ppiankov/runforge/internal/task"
+	"github.com/ppiankov/tokencontrol/internal/ingest"
+	"github.com/ppiankov/tokencontrol/internal/runner"
+	"github.com/ppiankov/tokencontrol/internal/task"
 )
 
 func newIngestCmd() *cobra.Command {
@@ -114,7 +114,7 @@ func runIngest(payloadPath, runnerName string, fallbacks []string, repoDir, prof
 	result := ExecuteIngest(ctx, payload, profile.Name, cfg)
 
 	// 5. Report result.
-	outputDir := filepath.Join(repoDir, ".runforge", "ingest", payload.WOID)
+	outputDir := filepath.Join(repoDir, ".tokencontrol", "ingest", payload.WOID)
 	fmt.Printf("\n=== Result ===\n")
 	fmt.Printf("WO:     %s\n", payload.WOID)
 	fmt.Printf("State:  %s\n", result.State)
@@ -171,7 +171,7 @@ func ExecuteIngest(ctx context.Context, payload *ingest.IngestPayload, profileNa
 	}
 
 	blacklist := runner.NewRunnerBlacklist()
-	outputDir := filepath.Join(cfg.RepoDir, ".runforge", "ingest", payload.WOID)
+	outputDir := filepath.Join(cfg.RepoDir, ".tokencontrol", "ingest", payload.WOID)
 	if err := os.MkdirAll(outputDir, 0755); err != nil {
 		return &task.TaskResult{
 			TaskID:  payload.WOID,

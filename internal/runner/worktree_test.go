@@ -53,8 +53,8 @@ func TestCreateWorktree(t *testing.T) {
 	}
 
 	// verify branch name
-	if branch != "runforge/task-1" {
-		t.Errorf("expected branch runforge/task-1, got %s", branch)
+	if branch != "tokencontrol/task-1" {
+		t.Errorf("expected branch tokencontrol/task-1, got %s", branch)
 	}
 
 	// verify worktree path
@@ -70,7 +70,7 @@ func TestCreateWorktree(t *testing.T) {
 	if err != nil {
 		t.Fatalf("git rev-parse in worktree: %v", err)
 	}
-	if strings.TrimSpace(string(out)) != "runforge/task-1" {
+	if strings.TrimSpace(string(out)) != "tokencontrol/task-1" {
 		t.Errorf("worktree on wrong branch: %s", out)
 	}
 }
@@ -80,7 +80,7 @@ func TestCreateWorktree_BranchExists(t *testing.T) {
 	reposDir := t.TempDir()
 
 	// create a stale branch
-	runGit(t, repoDir, "branch", "runforge/task-stale")
+	runGit(t, repoDir, "branch", "tokencontrol/task-stale")
 
 	ctx := context.Background()
 	wtDir, _, err := CreateWorktree(ctx, repoDir, reposDir, "task-stale")
@@ -195,19 +195,19 @@ func TestDeleteBranch(t *testing.T) {
 	repoDir := initTestRepo(t)
 
 	// create a branch
-	runGit(t, repoDir, "branch", "runforge/delete-me")
+	runGit(t, repoDir, "branch", "tokencontrol/delete-me")
 
 	// verify it exists
-	cmd := exec.Command("git", "rev-parse", "--verify", "runforge/delete-me")
+	cmd := exec.Command("git", "rev-parse", "--verify", "tokencontrol/delete-me")
 	cmd.Dir = repoDir
 	if err := cmd.Run(); err != nil {
 		t.Fatal("branch should exist before delete")
 	}
 
-	DeleteBranch(context.Background(), repoDir, "runforge/delete-me")
+	DeleteBranch(context.Background(), repoDir, "tokencontrol/delete-me")
 
 	// verify it's gone
-	cmd = exec.Command("git", "rev-parse", "--verify", "runforge/delete-me")
+	cmd = exec.Command("git", "rev-parse", "--verify", "tokencontrol/delete-me")
 	cmd.Dir = repoDir
 	if err := cmd.Run(); err == nil {
 		t.Fatal("branch should not exist after delete")
@@ -215,8 +215,8 @@ func TestDeleteBranch(t *testing.T) {
 }
 
 func TestBranchName(t *testing.T) {
-	if got := branchName("my-app-WO01"); got != "runforge/my-app-WO01" {
-		t.Errorf("expected runforge/my-app-WO01, got %s", got)
+	if got := branchName("my-app-WO01"); got != "tokencontrol/my-app-WO01" {
+		t.Errorf("expected tokencontrol/my-app-WO01, got %s", got)
 	}
 }
 

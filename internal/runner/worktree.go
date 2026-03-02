@@ -11,7 +11,7 @@ import (
 	"time"
 )
 
-const worktreeDir = ".runforge-worktrees"
+const worktreeDir = ".tokencontrol-worktrees"
 
 // CreateWorktree creates a git worktree for isolated task execution.
 // Returns the worktree directory path and branch name. The worktree is
@@ -108,7 +108,7 @@ func worktreePath(reposDir, taskID string) string {
 
 // branchName returns the git branch name for a task's worktree.
 func branchName(taskID string) string {
-	return "runforge/" + taskID
+	return "tokencontrol/" + taskID
 }
 
 // removeWorktreeForce runs git worktree remove --force, ignoring errors.

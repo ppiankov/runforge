@@ -13,8 +13,8 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/ppiankov/runforge/internal/config"
-	"github.com/ppiankov/runforge/internal/task"
+	"github.com/ppiankov/tokencontrol/internal/config"
+	"github.com/ppiankov/tokencontrol/internal/task"
 )
 
 func newVerifyCmd() *cobra.Command {
@@ -39,7 +39,7 @@ func newVerifyCmd() *cobra.Command {
 		},
 	}
 
-	cmd.Flags().StringVar(&runDir, "run-dir", "", "path to .runforge/<timestamp> directory (required)")
+	cmd.Flags().StringVar(&runDir, "run-dir", "", "path to .tokencontrol/<timestamp> directory (required)")
 	cmd.Flags().StringVar(&reposDir, "repos-dir", ".", "base directory containing repos")
 	cmd.Flags().BoolVar(&markDone, "mark-done", false, "update work-orders.md for verified tasks")
 	_ = cmd.MarkFlagRequired("run-dir")
@@ -361,7 +361,7 @@ func suggestGraylistCandidates(results []verifyResult, report task.RunReport) {
 
 	fmt.Println("\nGraylist candidates (reported success with 0 events or uncommitted changes):")
 	for name, count := range candidates {
-		fmt.Printf("  runforge graylist add %s --reason \"false positive: %d tasks in run %s\"\n",
+		fmt.Printf("  tokencontrol graylist add %s --reason \"false positive: %d tasks in run %s\"\n",
 			name, count, report.RunID)
 	}
 	fmt.Println("  Tip: use --model <model> to graylist a specific model instead of all models for that runner")

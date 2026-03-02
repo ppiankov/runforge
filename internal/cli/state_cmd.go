@@ -7,7 +7,7 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/ppiankov/runforge/internal/state"
+	"github.com/ppiankov/tokencontrol/internal/state"
 )
 
 func newStateCmd() *cobra.Command {
@@ -17,8 +17,8 @@ func newStateCmd() *cobra.Command {
 		Long: `Manage the persistent task state that prevents duplicate runs.
 
 Tasks that completed successfully are automatically skipped on subsequent runs.
-Use 'runforge state list' to see tracked tasks, 'runforge state reset <id>'
-to allow a task to re-execute, or 'runforge state clear' to reset all state.`,
+Use 'tokencontrol state list' to see tracked tasks, 'tokencontrol state reset <id>'
+to allow a task to re-execute, or 'tokencontrol state clear' to reset all state.`,
 	}
 
 	cmd.AddCommand(newStateListCmd())

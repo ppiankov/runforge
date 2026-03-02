@@ -3,7 +3,7 @@ package runner
 import (
 	"context"
 
-	"github.com/ppiankov/runforge/internal/task"
+	"github.com/ppiankov/tokencontrol/internal/task"
 )
 
 // Runner executes a task and returns its result.

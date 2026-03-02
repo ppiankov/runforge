@@ -14,7 +14,7 @@ import (
 	"time"
 
 	"github.com/fsnotify/fsnotify"
-	"github.com/ppiankov/runforge/internal/task"
+	"github.com/ppiankov/tokencontrol/internal/task"
 )
 
 // debounceDefault is the debounce interval for file events.

@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/ppiankov/runforge/internal/task"
+	"github.com/ppiankov/tokencontrol/internal/task"
 )
 
 // ReadJSONReport reads a run report from the given path.

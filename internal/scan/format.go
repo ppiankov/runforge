@@ -7,7 +7,7 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/ppiankov/runforge/internal/task"
+	"github.com/ppiankov/tokencontrol/internal/task"
 )
 
 const (
@@ -34,7 +34,7 @@ func NewTextFormatter(color bool) *TextFormatter {
 func (f *TextFormatter) Format(w io.Writer, result *ScanResult) error {
 	critCount, warnCount, infoCount := countSeverities(result.Findings)
 
-	fmt.Fprintf(w, "%srunforge scan%s — %d repos, %d findings\n\n",
+	fmt.Fprintf(w, "%stokencontrol scan%s — %d repos, %d findings\n\n",
 		f.c(colorBold), f.c(colorReset), len(result.ReposScanned),
 		len(result.Findings))
 
@@ -121,7 +121,7 @@ func (f *JSONFormatter) Format(w io.Writer, result *ScanResult) error {
 
 // --- Task Formatter ---
 
-// TaskFormatter generates a runforge task JSON file from findings.
+// TaskFormatter generates a tokencontrol task JSON file from findings.
 type TaskFormatter struct {
 	owner         string
 	defaultRunner string
@@ -133,7 +133,7 @@ func NewTaskFormatter(owner, defaultRunner string) *TaskFormatter {
 
 func (f *TaskFormatter) Format(w io.Writer, result *ScanResult) error {
 	tf := task.TaskFile{
-		Description: "Auto-generated from runforge scan",
+		Description: "Auto-generated from tokencontrol scan",
 	}
 	if f.defaultRunner != "" {
 		tf.DefaultRunner = f.defaultRunner

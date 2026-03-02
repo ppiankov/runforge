@@ -4,7 +4,7 @@ import (
 	"context"
 	"testing"
 
-	"github.com/ppiankov/runforge/internal/task"
+	"github.com/ppiankov/tokencontrol/internal/task"
 )
 
 // mockValidatingRunner implements both Runner and ModelValidator.

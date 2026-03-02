@@ -8,8 +8,8 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/ppiankov/runforge/internal/config"
-	"github.com/ppiankov/runforge/internal/runner"
+	"github.com/ppiankov/tokencontrol/internal/config"
+	"github.com/ppiankov/tokencontrol/internal/runner"
 )
 
 func newUnlockCmd() *cobra.Command {
@@ -33,7 +33,7 @@ func newUnlockCmd() *cobra.Command {
 				return fmt.Errorf("read lock: %w", err)
 			}
 
-			lockPath := filepath.Join(repoDir, ".runforge.lock")
+			lockPath := filepath.Join(repoDir, ".tokencontrol.lock")
 			if err := os.Remove(lockPath); err != nil {
 				return fmt.Errorf("remove lock: %w", err)
 			}
