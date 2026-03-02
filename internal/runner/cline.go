@@ -90,18 +90,19 @@ func (r *ClineRunner) Run(ctx context.Context, t *task.Task, repoDir, outputDir 
 	idleReader := newIdleTimeoutReader(stdout, r.idleTimeout, idleCancel)
 	defer idleReader.Stop()
 
-	_, lastMsg := parseClineEvents(idleReader, outputDir)
+	_, lastMsg, tokens := parseClineEvents(idleReader, outputDir)
 
 	exitErr := cmd.Wait()
 	end := time.Now()
 
 	result := &task.TaskResult{
-		TaskID:    t.ID,
-		StartedAt: start,
-		EndedAt:   end,
-		Duration:  end.Sub(start),
-		OutputDir: outputDir,
-		LastMsg:   lastMsg,
+		TaskID:     t.ID,
+		StartedAt:  start,
+		EndedAt:    end,
+		Duration:   end.Sub(start),
+		OutputDir:  outputDir,
+		LastMsg:    lastMsg,
+		TokensUsed: tokens,
 	}
 
 	// idle timeout takes highest priority
@@ -140,8 +141,9 @@ func (r *ClineRunner) Run(ctx context.Context, t *task.Task, repoDir, outputDir 
 
 // parseClineEvents reads NDJSON from Cline CLI stdout and extracts the last message.
 // Cline uses exit codes for success/failure, so failed is always false here.
-// Returns (failed bool, lastMessage string).
-func parseClineEvents(r io.Reader, outputDir string) (bool, string) {
+// Returns (failed bool, lastMessage string, usage *task.TokenUsage).
+// Cline CLI does not emit token usage — usage is always nil.
+func parseClineEvents(r io.Reader, outputDir string) (bool, string, *task.TokenUsage) {
 	eventsFile, _ := os.Create(filepath.Join(outputDir, "events.jsonl"))
 	defer func() {
 		if eventsFile != nil {
@@ -175,5 +177,5 @@ func parseClineEvents(r io.Reader, outputDir string) (bool, string) {
 		}
 	}
 
-	return false, lastMsg
+	return false, lastMsg, nil
 }

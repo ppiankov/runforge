@@ -15,7 +15,7 @@ func TestParseOpencodeEvents_Success(t *testing.T) {
 	}
 
 	r := opencodeEventsToReader(t, events)
-	failed, lastMsg := parseOpencodeEvents(r, t.TempDir())
+	failed, lastMsg, _ := parseOpencodeEvents(r, t.TempDir())
 
 	if failed {
 		t.Error("expected success, got failed")
@@ -31,7 +31,7 @@ func TestParseOpencodeEvents_Error(t *testing.T) {
 	}
 
 	r := opencodeEventsToReader(t, events)
-	failed, _ := parseOpencodeEvents(r, t.TempDir())
+	failed, _, _ := parseOpencodeEvents(r, t.TempDir())
 
 	if !failed {
 		t.Error("expected failure, got success")
@@ -41,7 +41,7 @@ func TestParseOpencodeEvents_Error(t *testing.T) {
 func TestParseOpencodeEvents_SingleResponse(t *testing.T) {
 	// OpenCode may output a single {"response":"..."} object
 	r := strings.NewReader(`{"response":"Task completed successfully."}` + "\n")
-	failed, lastMsg := parseOpencodeEvents(r, t.TempDir())
+	failed, lastMsg, _ := parseOpencodeEvents(r, t.TempDir())
 
 	if failed {
 		t.Error("expected success, got failed")
@@ -53,7 +53,7 @@ func TestParseOpencodeEvents_SingleResponse(t *testing.T) {
 
 func TestParseOpencodeEvents_EmptyInput(t *testing.T) {
 	r := strings.NewReader("")
-	failed, lastMsg := parseOpencodeEvents(r, t.TempDir())
+	failed, lastMsg, _ := parseOpencodeEvents(r, t.TempDir())
 
 	if failed {
 		t.Error("empty input should not be failed")
@@ -65,7 +65,7 @@ func TestParseOpencodeEvents_EmptyInput(t *testing.T) {
 
 func TestParseOpencodeEvents_InvalidJSON(t *testing.T) {
 	r := strings.NewReader("{invalid\n{also invalid\n")
-	failed, lastMsg := parseOpencodeEvents(r, t.TempDir())
+	failed, lastMsg, _ := parseOpencodeEvents(r, t.TempDir())
 
 	if failed {
 		t.Error("invalid json should not trigger failure")
@@ -105,7 +105,7 @@ func TestParseOpencodeEvents_LastMessageFromResult(t *testing.T) {
 	}
 
 	r := opencodeEventsToReader(t, events)
-	_, lastMsg := parseOpencodeEvents(r, t.TempDir())
+	_, lastMsg, _ := parseOpencodeEvents(r, t.TempDir())
 
 	if lastMsg != "Final" {
 		t.Errorf("expected 'Final', got %q", lastMsg)
@@ -121,7 +121,7 @@ func TestParseOpencodeEvents_V1TextEvents(t *testing.T) {
 	}, "\n") + "\n"
 
 	r := strings.NewReader(input)
-	failed, lastMsg := parseOpencodeEvents(r, t.TempDir())
+	failed, lastMsg, _ := parseOpencodeEvents(r, t.TempDir())
 
 	if failed {
 		t.Error("expected success, got failed")
@@ -135,7 +135,7 @@ func TestParseOpencodeEvents_V1ErrorEvent(t *testing.T) {
 	input := `{"type":"error","sessionID":"ses_123","part":{"type":"error","error":"model not found"}}` + "\n"
 
 	r := strings.NewReader(input)
-	failed, _ := parseOpencodeEvents(r, t.TempDir())
+	failed, _, _ := parseOpencodeEvents(r, t.TempDir())
 
 	if !failed {
 		t.Error("expected failure on error event")
@@ -149,7 +149,7 @@ func TestParseOpencodeEvents_V1StepFinishError(t *testing.T) {
 	}, "\n") + "\n"
 
 	r := strings.NewReader(input)
-	failed, lastMsg := parseOpencodeEvents(r, t.TempDir())
+	failed, lastMsg, _ := parseOpencodeEvents(r, t.TempDir())
 
 	if !failed {
 		t.Error("expected failure on step_finish with error reason")

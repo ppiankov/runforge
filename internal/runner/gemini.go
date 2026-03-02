@@ -89,18 +89,19 @@ func (r *GeminiRunner) Run(ctx context.Context, t *task.Task, repoDir, outputDir
 	idleReader := newIdleTimeoutReader(stdout, r.idleTimeout, idleCancel)
 	defer idleReader.Stop()
 
-	failed, lastMsg := parseGeminiEvents(idleReader, outputDir)
+	failed, lastMsg, tokens := parseGeminiEvents(idleReader, outputDir)
 
 	exitErr := cmd.Wait()
 	end := time.Now()
 
 	result := &task.TaskResult{
-		TaskID:    t.ID,
-		StartedAt: start,
-		EndedAt:   end,
-		Duration:  end.Sub(start),
-		OutputDir: outputDir,
-		LastMsg:   lastMsg,
+		TaskID:     t.ID,
+		StartedAt:  start,
+		EndedAt:    end,
+		Duration:   end.Sub(start),
+		OutputDir:  outputDir,
+		LastMsg:    lastMsg,
+		TokensUsed: tokens,
 	}
 
 	// idle timeout takes highest priority
@@ -142,8 +143,9 @@ func (r *GeminiRunner) Run(ctx context.Context, t *task.Task, repoDir, outputDir
 }
 
 // parseGeminiEvents reads NDJSON from Gemini CLI stdout and detects failures.
-// Returns (failed bool, lastMessage string).
-func parseGeminiEvents(r io.Reader, outputDir string) (bool, string) {
+// Returns (failed bool, lastMessage string, usage *task.TokenUsage).
+// Gemini CLI does not emit token usage — usage is always nil.
+func parseGeminiEvents(r io.Reader, outputDir string) (bool, string, *task.TokenUsage) {
 	eventsFile, _ := os.Create(filepath.Join(outputDir, "events.jsonl"))
 	defer func() {
 		if eventsFile != nil {
@@ -187,5 +189,5 @@ func parseGeminiEvents(r io.Reader, outputDir string) (bool, string) {
 		}
 	}
 
-	return failed, lastMsg
+	return failed, lastMsg, nil
 }

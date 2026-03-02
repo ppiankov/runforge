@@ -27,6 +27,7 @@ type opencodeEvent struct {
 	Response  string          `json:"response,omitempty"`
 	Error     json.RawMessage `json:"error,omitempty"`
 	Part      opencodePart    `json:"part,omitempty"`
+	Usage     *eventUsage     `json:"usage,omitempty"`
 }
 
 // opencodePart holds the nested payload within an OpenCode event.
@@ -122,18 +123,19 @@ func (r *OpencodeRunner) Run(ctx context.Context, t *task.Task, repoDir, outputD
 	idleReader := newIdleTimeoutReader(stdout, r.idleTimeout, idleCancel)
 	defer idleReader.Stop()
 
-	failed, lastMsg := parseOpencodeEvents(idleReader, outputDir)
+	failed, lastMsg, tokens := parseOpencodeEvents(idleReader, outputDir)
 
 	exitErr := cmd.Wait()
 	end := time.Now()
 
 	result := &task.TaskResult{
-		TaskID:    t.ID,
-		StartedAt: start,
-		EndedAt:   end,
-		Duration:  end.Sub(start),
-		OutputDir: outputDir,
-		LastMsg:   lastMsg,
+		TaskID:     t.ID,
+		StartedAt:  start,
+		EndedAt:    end,
+		Duration:   end.Sub(start),
+		OutputDir:  outputDir,
+		LastMsg:    lastMsg,
+		TokensUsed: tokens,
 	}
 
 	// idle timeout takes highest priority
@@ -176,16 +178,8 @@ func (r *OpencodeRunner) Run(ctx context.Context, t *task.Task, repoDir, outputD
 }
 
 // parseOpencodeEvents reads JSON from OpenCode stdout and detects failures.
-// OpenCode v1.x outputs structured events with nested part objects:
-//
-//	{"type":"text","part":{"text":"..."}}
-//	{"type":"step_finish","part":{"reason":"stop"}}
-//	{"type":"error","part":{"error":"..."}}
-//
-// Also supports legacy format: {"type":"message","response":"..."} and
-// single-object format: {"response":"..."}.
-// Returns (failed bool, lastMessage string).
-func parseOpencodeEvents(r io.Reader, outputDir string) (bool, string) {
+// Returns (failed bool, lastMessage string, usage *task.TokenUsage).
+func parseOpencodeEvents(r io.Reader, outputDir string) (bool, string, *task.TokenUsage) {
 	eventsFile, _ := os.Create(filepath.Join(outputDir, "events.jsonl"))
 	defer func() {
 		if eventsFile != nil {
@@ -198,6 +192,7 @@ func parseOpencodeEvents(r io.Reader, outputDir string) (bool, string) {
 
 	var failed bool
 	var lastMsg string
+	var usage *task.TokenUsage
 
 	for scanner.Scan() {
 		line := scanner.Bytes()
@@ -212,6 +207,10 @@ func parseOpencodeEvents(r io.Reader, outputDir string) (bool, string) {
 		if err := json.Unmarshal(line, &ev); err != nil {
 			slog.Debug("unparseable json line", "error", err)
 			continue
+		}
+
+		if ev.Usage != nil {
+			usage = addUsage(usage, ev.Usage.InputTokens, ev.Usage.OutputTokens, ev.Usage.TotalTokens)
 		}
 
 		switch ev.Type {
@@ -250,5 +249,5 @@ func parseOpencodeEvents(r io.Reader, outputDir string) (bool, string) {
 		}
 	}
 
-	return failed, lastMsg
+	return failed, lastMsg, usage
 }

@@ -91,7 +91,7 @@ func (r *CodexRunner) Run(ctx context.Context, t *task.Task, repoDir, outputDir 
 	defer idleReader.Stop()
 
 	// parse JSONL events from stdout
-	failed, lastMsg := parseEvents(idleReader, outputDir)
+	failed, lastMsg, tokens := parseEvents(idleReader, outputDir)
 
 	exitErr := cmd.Wait()
 	end := time.Now()
@@ -102,12 +102,13 @@ func (r *CodexRunner) Run(ctx context.Context, t *task.Task, repoDir, outputDir 
 	}
 
 	result := &task.TaskResult{
-		TaskID:    t.ID,
-		StartedAt: start,
-		EndedAt:   end,
-		Duration:  end.Sub(start),
-		OutputDir: outputDir,
-		LastMsg:   lastMsg,
+		TaskID:     t.ID,
+		StartedAt:  start,
+		EndedAt:    end,
+		Duration:   end.Sub(start),
+		OutputDir:  outputDir,
+		LastMsg:    lastMsg,
+		TokensUsed: tokens,
 	}
 
 	// idle timeout takes highest priority — the process was killed due to inactivity
@@ -150,8 +151,8 @@ func (r *CodexRunner) Run(ctx context.Context, t *task.Task, repoDir, outputDir 
 }
 
 // parseEvents reads JSONL from codex stdout and detects failures.
-// Returns (failed bool, lastMessage string).
-func parseEvents(r io.Reader, outputDir string) (bool, string) {
+// Returns (failed bool, lastMessage string, usage *task.TokenUsage).
+func parseEvents(r io.Reader, outputDir string) (bool, string, *task.TokenUsage) {
 	eventsFile, _ := os.Create(filepath.Join(outputDir, "events.jsonl"))
 	defer func() {
 		if eventsFile != nil {
@@ -164,6 +165,7 @@ func parseEvents(r io.Reader, outputDir string) (bool, string) {
 
 	var failed bool
 	var lastMsg string
+	var usage *task.TokenUsage
 
 	for scanner.Scan() {
 		line := scanner.Bytes()
@@ -180,6 +182,10 @@ func parseEvents(r io.Reader, outputDir string) (bool, string) {
 			continue
 		}
 
+		if ev.Usage != nil {
+			usage = addUsage(usage, ev.Usage.InputTokens, ev.Usage.OutputTokens, ev.Usage.TotalTokens)
+		}
+
 		switch ev.Type {
 		case EventTurnFailed:
 			failed = true
@@ -193,7 +199,7 @@ func parseEvents(r io.Reader, outputDir string) (bool, string) {
 		}
 	}
 
-	return failed, lastMsg
+	return failed, lastMsg, usage
 }
 
 // ParseEventsFromFile reads a saved events.jsonl file and extracts results.
@@ -212,7 +218,7 @@ func ParseEventsFromFile(path string) (failed bool, lastMsg string, err error) {
 	}
 	defer func() { _ = os.RemoveAll(tmpDir) }()
 
-	failed, lastMsg = parseEvents(f, tmpDir)
+	failed, lastMsg, _ = parseEvents(f, tmpDir)
 	return failed, lastMsg, nil
 }
 

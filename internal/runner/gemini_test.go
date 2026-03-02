@@ -16,7 +16,7 @@ func TestParseGeminiEvents_Success(t *testing.T) {
 	}
 
 	r := geminiEventsToReader(t, events)
-	failed, lastMsg := parseGeminiEvents(r, t.TempDir())
+	failed, lastMsg, _ := parseGeminiEvents(r, t.TempDir())
 
 	if failed {
 		t.Error("expected success, got failed")
@@ -34,7 +34,7 @@ func TestParseGeminiEvents_Failure(t *testing.T) {
 	}
 
 	r := geminiEventsToReader(t, events)
-	failed, _ := parseGeminiEvents(r, t.TempDir())
+	failed, _, _ := parseGeminiEvents(r, t.TempDir())
 
 	if !failed {
 		t.Error("expected failure, got success")
@@ -50,7 +50,7 @@ func TestParseGeminiEvents_LastMessage(t *testing.T) {
 	}
 
 	r := geminiEventsToReader(t, events)
-	_, lastMsg := parseGeminiEvents(r, t.TempDir())
+	_, lastMsg, _ := parseGeminiEvents(r, t.TempDir())
 
 	if lastMsg != "Final answer" {
 		t.Errorf("expected 'Final answer', got %q", lastMsg)
@@ -59,7 +59,7 @@ func TestParseGeminiEvents_LastMessage(t *testing.T) {
 
 func TestParseGeminiEvents_EmptyInput(t *testing.T) {
 	r := strings.NewReader("")
-	failed, lastMsg := parseGeminiEvents(r, t.TempDir())
+	failed, lastMsg, _ := parseGeminiEvents(r, t.TempDir())
 
 	if failed {
 		t.Error("empty input should not be failed")
@@ -71,7 +71,7 @@ func TestParseGeminiEvents_EmptyInput(t *testing.T) {
 
 func TestParseGeminiEvents_InvalidJSON(t *testing.T) {
 	r := strings.NewReader("{invalid\n{also invalid\n")
-	failed, lastMsg := parseGeminiEvents(r, t.TempDir())
+	failed, lastMsg, _ := parseGeminiEvents(r, t.TempDir())
 
 	if failed {
 		t.Error("invalid json should not trigger failure")
@@ -114,7 +114,7 @@ func TestParseGeminiEvents_DeltaMessages(t *testing.T) {
 	}
 
 	r := geminiEventsToReader(t, events)
-	failed, lastMsg := parseGeminiEvents(r, t.TempDir())
+	failed, lastMsg, _ := parseGeminiEvents(r, t.TempDir())
 
 	if failed {
 		t.Error("expected success")
@@ -132,7 +132,7 @@ func TestParseGeminiEvents_UserMessageIgnored(t *testing.T) {
 	}
 
 	r := geminiEventsToReader(t, events)
-	_, lastMsg := parseGeminiEvents(r, t.TempDir())
+	_, lastMsg, _ := parseGeminiEvents(r, t.TempDir())
 
 	if lastMsg != "done" {
 		t.Errorf("expected 'done', got %q", lastMsg)

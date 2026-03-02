@@ -682,7 +682,24 @@ func buildReport(tasksFiles []string, workers int, filter, reposDir string, resu
 		}
 	}
 
+	report.TotalTokens = aggregateTokens(results)
+
 	return report
+}
+
+func aggregateTokens(results map[string]*task.TaskResult) *task.TokenUsage {
+	var total *task.TokenUsage
+	for _, r := range results {
+		if r.TokensUsed != nil {
+			if total == nil {
+				total = &task.TokenUsage{}
+			}
+			total.InputTokens += r.TokensUsed.InputTokens
+			total.OutputTokens += r.TokensUsed.OutputTokens
+			total.TotalTokens += r.TokensUsed.TotalTokens
+		}
+	}
+	return total
 }
 
 func filterTasks(tasks []task.Task, pattern string) []task.Task {

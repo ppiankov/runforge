@@ -16,7 +16,7 @@ func TestParseClaudeEvents_Success(t *testing.T) {
 	}
 
 	r := claudeEventsToReader(t, events)
-	failed, lastMsg := parseClaudeEvents(r, t.TempDir())
+	failed, lastMsg, _ := parseClaudeEvents(r, t.TempDir())
 
 	if failed {
 		t.Error("expected success, got failed")
@@ -34,7 +34,7 @@ func TestParseClaudeEvents_Failure(t *testing.T) {
 	}
 
 	r := claudeEventsToReader(t, events)
-	failed, _ := parseClaudeEvents(r, t.TempDir())
+	failed, _, _ := parseClaudeEvents(r, t.TempDir())
 
 	if !failed {
 		t.Error("expected failure, got success")
@@ -50,7 +50,7 @@ func TestParseClaudeEvents_LastMessage(t *testing.T) {
 	}
 
 	r := claudeEventsToReader(t, events)
-	_, lastMsg := parseClaudeEvents(r, t.TempDir())
+	_, lastMsg, _ := parseClaudeEvents(r, t.TempDir())
 
 	if lastMsg != "Final answer" {
 		t.Errorf("expected 'Final answer', got %q", lastMsg)
@@ -59,7 +59,7 @@ func TestParseClaudeEvents_LastMessage(t *testing.T) {
 
 func TestParseClaudeEvents_EmptyInput(t *testing.T) {
 	r := strings.NewReader("")
-	failed, lastMsg := parseClaudeEvents(r, t.TempDir())
+	failed, lastMsg, _ := parseClaudeEvents(r, t.TempDir())
 
 	if !failed {
 		t.Error("empty input should be treated as failure (likely argument error)")
@@ -71,7 +71,7 @@ func TestParseClaudeEvents_EmptyInput(t *testing.T) {
 
 func TestParseClaudeEvents_InvalidJSON(t *testing.T) {
 	r := strings.NewReader("{invalid\n{also invalid\n")
-	failed, lastMsg := parseClaudeEvents(r, t.TempDir())
+	failed, lastMsg, _ := parseClaudeEvents(r, t.TempDir())
 
 	if failed {
 		t.Error("invalid json should not trigger failure")
@@ -114,7 +114,7 @@ func TestParseClaudeEvents_ToolEvents(t *testing.T) {
 	}
 
 	r := claudeEventsToReader(t, events)
-	failed, lastMsg := parseClaudeEvents(r, t.TempDir())
+	failed, lastMsg, _ := parseClaudeEvents(r, t.TempDir())
 
 	if failed {
 		t.Error("expected success")

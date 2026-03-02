@@ -21,6 +21,7 @@ type claudeEvent struct {
 	Role    string          `json:"role,omitempty"`
 	Content []claudeContent `json:"content,omitempty"`
 	Status  string          `json:"status,omitempty"`
+	Usage   *eventUsage     `json:"usage,omitempty"`
 }
 
 type claudeContent struct {
@@ -96,18 +97,19 @@ func (r *ClaudeRunner) Run(ctx context.Context, t *task.Task, repoDir, outputDir
 	idleReader := newIdleTimeoutReader(stdout, r.idleTimeout, idleCancel)
 	defer idleReader.Stop()
 
-	failed, lastMsg := parseClaudeEvents(idleReader, outputDir)
+	failed, lastMsg, tokens := parseClaudeEvents(idleReader, outputDir)
 
 	exitErr := cmd.Wait()
 	end := time.Now()
 
 	result := &task.TaskResult{
-		TaskID:    t.ID,
-		StartedAt: start,
-		EndedAt:   end,
-		Duration:  end.Sub(start),
-		OutputDir: outputDir,
-		LastMsg:   lastMsg,
+		TaskID:     t.ID,
+		StartedAt:  start,
+		EndedAt:    end,
+		Duration:   end.Sub(start),
+		OutputDir:  outputDir,
+		LastMsg:    lastMsg,
+		TokensUsed: tokens,
 	}
 
 	// idle timeout takes highest priority — the process was killed due to inactivity
@@ -149,8 +151,8 @@ func (r *ClaudeRunner) Run(ctx context.Context, t *task.Task, repoDir, outputDir
 }
 
 // parseClaudeEvents reads NDJSON from Claude Code stdout and detects failures.
-// Returns (failed bool, lastMessage string).
-func parseClaudeEvents(r io.Reader, outputDir string) (bool, string) {
+// Returns (failed bool, lastMessage string, usage *task.TokenUsage).
+func parseClaudeEvents(r io.Reader, outputDir string) (bool, string, *task.TokenUsage) {
 	eventsFile, _ := os.Create(filepath.Join(outputDir, "events.jsonl"))
 	defer func() {
 		if eventsFile != nil {
@@ -164,6 +166,7 @@ func parseClaudeEvents(r io.Reader, outputDir string) (bool, string) {
 	var failed bool
 	var lastMsg string
 	var eventCount int
+	var usage *task.TokenUsage
 
 	for scanner.Scan() {
 		line := scanner.Bytes()
@@ -180,6 +183,10 @@ func parseClaudeEvents(r io.Reader, outputDir string) (bool, string) {
 		if err := json.Unmarshal(line, &ev); err != nil {
 			slog.Debug("unparseable jsonl line", "error", err)
 			continue
+		}
+
+		if ev.Usage != nil {
+			usage = addUsage(usage, ev.Usage.InputTokens, ev.Usage.OutputTokens, ev.Usage.TotalTokens)
 		}
 
 		switch ev.Type {
@@ -206,5 +213,5 @@ func parseClaudeEvents(r io.Reader, outputDir string) (bool, string) {
 		failed = true
 	}
 
-	return failed, lastMsg
+	return failed, lastMsg, usage
 }

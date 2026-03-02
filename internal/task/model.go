@@ -136,6 +136,13 @@ type AttemptInfo struct {
 	ConnectivityError string        `json:"connectivity_error,omitempty"`
 }
 
+// TokenUsage tracks token consumption for a task or aggregate report.
+type TokenUsage struct {
+	InputTokens  int `json:"input_tokens"`
+	OutputTokens int `json:"output_tokens"`
+	TotalTokens  int `json:"total_tokens"`
+}
+
 // TaskResult captures the outcome of executing a single task.
 type TaskResult struct {
 	TaskID    string        `json:"task_id"`
@@ -159,6 +166,7 @@ type TaskResult struct {
 	RunnerUsed string        `json:"runner_used,omitempty"` // profile that produced the final result
 	Attempts   []AttemptInfo `json:"attempts,omitempty"`    // all cascade attempts
 	Review     *ReviewResult `json:"review,omitempty"`      // auto-review result
+	TokensUsed *TokenUsage   `json:"tokens_used,omitempty"` // nil = no data available
 }
 
 // ReviewResult captures the outcome of an automatic code review.
@@ -190,6 +198,7 @@ type RunReport struct {
 	MergeConflicts int                    `json:"merge_conflicts,omitempty"`
 	TotalDuration  time.Duration          `json:"total_duration"`
 	ResetsAt       time.Time              `json:"resets_at,omitempty"`
+	TotalTokens    *TokenUsage            `json:"total_tokens,omitempty"`
 }
 
 // UnmarshalJSON supports both old ("tasks_file": "x.json") and new

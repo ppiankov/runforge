@@ -22,6 +22,7 @@ type qwenEvent struct {
 	IsError bool         `json:"is_error"` // true on failure (result events)
 	Result  string       `json:"result"`   // result text (result events)
 	Message *qwenMessage `json:"message"`  // assistant message payload
+	Usage   *eventUsage  `json:"usage,omitempty"`
 }
 
 type qwenMessage struct {
@@ -100,18 +101,19 @@ func (r *QwenRunner) Run(ctx context.Context, t *task.Task, repoDir, outputDir s
 	idleReader := newIdleTimeoutReader(stdout, r.idleTimeout, idleCancel)
 	defer idleReader.Stop()
 
-	failed, lastMsg := parseQwenEvents(idleReader, outputDir)
+	failed, lastMsg, tokens := parseQwenEvents(idleReader, outputDir)
 
 	exitErr := cmd.Wait()
 	end := time.Now()
 
 	result := &task.TaskResult{
-		TaskID:    t.ID,
-		StartedAt: start,
-		EndedAt:   end,
-		Duration:  end.Sub(start),
-		OutputDir: outputDir,
-		LastMsg:   lastMsg,
+		TaskID:     t.ID,
+		StartedAt:  start,
+		EndedAt:    end,
+		Duration:   end.Sub(start),
+		OutputDir:  outputDir,
+		LastMsg:    lastMsg,
+		TokensUsed: tokens,
 	}
 
 	// idle timeout takes highest priority
@@ -153,8 +155,8 @@ func (r *QwenRunner) Run(ctx context.Context, t *task.Task, repoDir, outputDir s
 }
 
 // parseQwenEvents reads NDJSON from Qwen Code stdout and detects failures.
-// Returns (failed bool, lastMessage string).
-func parseQwenEvents(r io.Reader, outputDir string) (bool, string) {
+// Returns (failed bool, lastMessage string, usage *task.TokenUsage).
+func parseQwenEvents(r io.Reader, outputDir string) (bool, string, *task.TokenUsage) {
 	eventsFile, _ := os.Create(filepath.Join(outputDir, "events.jsonl"))
 	defer func() {
 		if eventsFile != nil {
@@ -168,6 +170,7 @@ func parseQwenEvents(r io.Reader, outputDir string) (bool, string) {
 	var failed bool
 	var lastMsg string
 	var eventCount int
+	var usage *task.TokenUsage
 
 	for scanner.Scan() {
 		line := scanner.Bytes()
@@ -184,6 +187,10 @@ func parseQwenEvents(r io.Reader, outputDir string) (bool, string) {
 		if err := json.Unmarshal(line, &ev); err != nil {
 			slog.Debug("unparseable jsonl line", "error", err)
 			continue
+		}
+
+		if ev.Usage != nil {
+			usage = addUsage(usage, ev.Usage.InputTokens, ev.Usage.OutputTokens, ev.Usage.TotalTokens)
 		}
 
 		switch ev.Type {
@@ -210,5 +217,5 @@ func parseQwenEvents(r io.Reader, outputDir string) (bool, string) {
 		failed = true
 	}
 
-	return failed, lastMsg
+	return failed, lastMsg, usage
 }

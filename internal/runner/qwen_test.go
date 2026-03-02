@@ -19,7 +19,7 @@ func TestParseQwenEvents_Success(t *testing.T) {
 	}
 
 	r := qwenEventsToReader(t, events)
-	failed, lastMsg := parseQwenEvents(r, t.TempDir())
+	failed, lastMsg, _ := parseQwenEvents(r, t.TempDir())
 
 	if failed {
 		t.Error("expected success, got failed")
@@ -36,7 +36,7 @@ func TestParseQwenEvents_Failure(t *testing.T) {
 	}
 
 	r := qwenEventsToReader(t, events)
-	failed, _ := parseQwenEvents(r, t.TempDir())
+	failed, _, _ := parseQwenEvents(r, t.TempDir())
 
 	if !failed {
 		t.Error("expected failure, got success")
@@ -49,7 +49,7 @@ func TestParseQwenEvents_FailureSubtype(t *testing.T) {
 	}
 
 	r := qwenEventsToReader(t, events)
-	failed, _ := parseQwenEvents(r, t.TempDir())
+	failed, _, _ := parseQwenEvents(r, t.TempDir())
 
 	if !failed {
 		t.Error("non-success subtype should be treated as failure")
@@ -70,7 +70,7 @@ func TestParseQwenEvents_LastMessage(t *testing.T) {
 	}
 
 	r := qwenEventsToReader(t, events)
-	_, lastMsg := parseQwenEvents(r, t.TempDir())
+	_, lastMsg, _ := parseQwenEvents(r, t.TempDir())
 
 	if lastMsg != "Final answer" {
 		t.Errorf("expected 'Final answer', got %q", lastMsg)
@@ -79,7 +79,7 @@ func TestParseQwenEvents_LastMessage(t *testing.T) {
 
 func TestParseQwenEvents_EmptyInput(t *testing.T) {
 	r := strings.NewReader("")
-	failed, lastMsg := parseQwenEvents(r, t.TempDir())
+	failed, lastMsg, _ := parseQwenEvents(r, t.TempDir())
 
 	if !failed {
 		t.Error("empty input should be treated as failure")
@@ -91,7 +91,7 @@ func TestParseQwenEvents_EmptyInput(t *testing.T) {
 
 func TestParseQwenEvents_InvalidJSON(t *testing.T) {
 	r := strings.NewReader("{invalid\n{also invalid\n")
-	failed, lastMsg := parseQwenEvents(r, t.TempDir())
+	failed, lastMsg, _ := parseQwenEvents(r, t.TempDir())
 
 	if failed {
 		t.Error("invalid json should not trigger failure (events exist but unparseable)")
@@ -138,7 +138,7 @@ func TestParseQwenEvents_SystemEventsIgnored(t *testing.T) {
 	}
 
 	r := qwenEventsToReader(t, events)
-	_, lastMsg := parseQwenEvents(r, t.TempDir())
+	_, lastMsg, _ := parseQwenEvents(r, t.TempDir())
 
 	if lastMsg != "actual response" {
 		t.Errorf("system events should not affect lastMsg, got %q", lastMsg)

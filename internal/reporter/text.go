@@ -188,6 +188,9 @@ func (r *TextReporter) PrintSummary(report *task.RunReport) {
 		}
 	}
 	fmt.Fprintln(r.w)
+	if report.TotalTokens != nil {
+		fmt.Fprintf(r.w, "Tokens: %s\n", formatTokens(report.TotalTokens))
+	}
 }
 
 // PrintModelResolutions writes model auto-resolution information.
@@ -292,6 +295,9 @@ func runnerSuffix(res *task.TaskResult) string {
 	} else if res.WorktreeBranch != "" {
 		parts = append(parts, "branch: "+res.WorktreeBranch)
 	}
+	if res.TokensUsed != nil {
+		parts = append(parts, formatCompactTokens(res.TokensUsed.TotalTokens))
+	}
 	if res.Review != nil {
 		if res.Review.Passed {
 			parts = append(parts, "reviewed ✓")
@@ -314,6 +320,26 @@ func countFallbacks(report *task.RunReport) int {
 		}
 	}
 	return n
+}
+
+// formatTokens formats token usage for summary display.
+func formatTokens(u *task.TokenUsage) string {
+	return fmt.Sprintf("%s in / %s out (%s total)",
+		formatCompactTokens(u.InputTokens),
+		formatCompactTokens(u.OutputTokens),
+		formatCompactTokens(u.TotalTokens))
+}
+
+// formatCompactTokens formats a token count with K/M suffixes.
+func formatCompactTokens(n int) string {
+	switch {
+	case n >= 1_000_000:
+		return fmt.Sprintf("%.1fM tokens", float64(n)/1_000_000)
+	case n >= 1_000:
+		return fmt.Sprintf("%.1fK tokens", float64(n)/1_000)
+	default:
+		return fmt.Sprintf("%d tokens", n)
+	}
 }
 
 // reviewStats returns (total reviewed, passed, failed).

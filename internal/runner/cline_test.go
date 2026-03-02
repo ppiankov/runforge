@@ -15,7 +15,7 @@ func TestParseClineEvents_Success(t *testing.T) {
 	}
 
 	r := clineEventsToReader(t, events)
-	failed, lastMsg := parseClineEvents(r, t.TempDir())
+	failed, lastMsg, _ := parseClineEvents(r, t.TempDir())
 
 	if failed {
 		t.Error("expected success, got failed")
@@ -33,7 +33,7 @@ func TestParseClineEvents_LastMessage(t *testing.T) {
 	}
 
 	r := clineEventsToReader(t, events)
-	_, lastMsg := parseClineEvents(r, t.TempDir())
+	_, lastMsg, _ := parseClineEvents(r, t.TempDir())
 
 	if lastMsg != "Final answer" {
 		t.Errorf("expected 'Final answer', got %q", lastMsg)
@@ -42,7 +42,7 @@ func TestParseClineEvents_LastMessage(t *testing.T) {
 
 func TestParseClineEvents_EmptyInput(t *testing.T) {
 	r := strings.NewReader("")
-	failed, lastMsg := parseClineEvents(r, t.TempDir())
+	failed, lastMsg, _ := parseClineEvents(r, t.TempDir())
 
 	if failed {
 		t.Error("cline uses exit codes for failure, not empty events")
@@ -54,7 +54,7 @@ func TestParseClineEvents_EmptyInput(t *testing.T) {
 
 func TestParseClineEvents_InvalidJSON(t *testing.T) {
 	r := strings.NewReader("{invalid\n{also invalid\n")
-	failed, lastMsg := parseClineEvents(r, t.TempDir())
+	failed, lastMsg, _ := parseClineEvents(r, t.TempDir())
 
 	if failed {
 		t.Error("invalid json should not trigger failure")
@@ -94,7 +94,7 @@ func TestParseClineEvents_AskEventsIgnored(t *testing.T) {
 	}
 
 	r := clineEventsToReader(t, events)
-	_, lastMsg := parseClineEvents(r, t.TempDir())
+	_, lastMsg, _ := parseClineEvents(r, t.TempDir())
 
 	if lastMsg != "real message" {
 		t.Errorf("ask events should not affect lastMsg, got %q", lastMsg)
@@ -109,7 +109,7 @@ func TestParseClineEvents_ReasoningIgnored(t *testing.T) {
 	}
 
 	r := clineEventsToReader(t, events)
-	_, lastMsg := parseClineEvents(r, t.TempDir())
+	_, lastMsg, _ := parseClineEvents(r, t.TempDir())
 
 	if lastMsg != "actual response" {
 		t.Errorf("reasoning events should not affect lastMsg, got %q", lastMsg)

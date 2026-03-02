@@ -14,10 +14,18 @@ const (
 	EventTurnFailed    EventType = "turn.failed"
 )
 
+// eventUsage represents token usage data in a JSONL event.
+type eventUsage struct {
+	InputTokens  int `json:"input_tokens"`
+	OutputTokens int `json:"output_tokens"`
+	TotalTokens  int `json:"total_tokens"`
+}
+
 // Event is the top-level JSONL structure emitted by codex exec --json.
 type Event struct {
-	Type EventType `json:"type"`
-	Item *Item     `json:"item,omitempty"`
+	Type  EventType   `json:"type"`
+	Item  *Item       `json:"item,omitempty"`
+	Usage *eventUsage `json:"usage,omitempty"`
 }
 
 // Item represents a completed item within a codex turn.
