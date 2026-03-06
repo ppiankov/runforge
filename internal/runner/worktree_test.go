@@ -191,6 +191,55 @@ func TestMergeBack_Conflict(t *testing.T) {
 	}
 }
 
+func TestMergeBack_SiblingBranches(t *testing.T) {
+	repoDir := initTestRepo(t)
+	reposDir := t.TempDir()
+	ctx := context.Background()
+
+	// create two worktrees from the same base
+	wtDirA, branchA, err := CreateWorktree(ctx, repoDir, reposDir, "task-A")
+	if err != nil {
+		t.Fatalf("CreateWorktree A: %v", err)
+	}
+	wtDirB, branchB, err := CreateWorktree(ctx, repoDir, reposDir, "task-B")
+	if err != nil {
+		t.Fatalf("CreateWorktree B: %v", err)
+	}
+
+	// make disjoint edits in each worktree
+	_ = os.WriteFile(filepath.Join(wtDirA, "file-a.txt"), []byte("from task A"), 0o644)
+	runGit(t, wtDirA, "add", ".")
+	runGit(t, wtDirA, "commit", "-m", "task A work")
+
+	_ = os.WriteFile(filepath.Join(wtDirB, "file-b.txt"), []byte("from task B"), 0o644)
+	runGit(t, wtDirB, "add", ".")
+	runGit(t, wtDirB, "commit", "-m", "task B work")
+
+	// remove worktrees before merge
+	RemoveWorktree(ctx, repoDir, wtDirA)
+	RemoveWorktree(ctx, repoDir, wtDirB)
+
+	// merge A first — should FF
+	if err := MergeBack(ctx, repoDir, branchA); err != nil {
+		t.Fatalf("MergeBack A failed: %v", err)
+	}
+	DeleteBranch(ctx, repoDir, branchA)
+
+	// merge B — should rebase then FF (not conflict)
+	if err := MergeBack(ctx, repoDir, branchB); err != nil {
+		t.Fatalf("MergeBack B failed (should rebase): %v", err)
+	}
+	DeleteBranch(ctx, repoDir, branchB)
+
+	// verify both files exist in main repo
+	if _, err := os.Stat(filepath.Join(repoDir, "file-a.txt")); err != nil {
+		t.Fatal("file-a.txt not found after merge")
+	}
+	if _, err := os.Stat(filepath.Join(repoDir, "file-b.txt")); err != nil {
+		t.Fatal("file-b.txt not found after merge")
+	}
+}
+
 func TestDeleteBranch(t *testing.T) {
 	repoDir := initTestRepo(t)
 

@@ -11,6 +11,14 @@ import (
 	"time"
 )
 
+// gitEnv provides tokencontrol identity for git operations in CI environments.
+var gitEnv = append(os.Environ(),
+	"GIT_AUTHOR_NAME=tokencontrol",
+	"GIT_AUTHOR_EMAIL=tokencontrol@localhost",
+	"GIT_COMMITTER_NAME=tokencontrol",
+	"GIT_COMMITTER_EMAIL=tokencontrol@localhost",
+)
+
 const worktreeDir = ".tokencontrol-worktrees"
 
 // CreateWorktree creates a git worktree for isolated task execution.
@@ -71,21 +79,42 @@ func RemoveWorktree(ctx context.Context, repoDir, wtDir string) {
 	_ = cmd.Run()
 }
 
-// MergeBack merges a worktree branch into the current branch using
-// fast-forward only. Returns an error if the merge requires a real merge
-// commit (conflict or diverged history).
+// MergeBack merges a worktree branch into the current branch.
+// Tries fast-forward first. If the target branch has moved ahead (sibling
+// merges), rebases the branch onto the current HEAD and retries FF merge.
+// Returns an error only for real content conflicts.
 func MergeBack(ctx context.Context, repoDir, branch string) error {
-	cmdCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
+	cmdCtx, cancel := context.WithTimeout(ctx, 60*time.Second)
 	defer cancel()
 
+	// try fast-forward first (covers first merge or sequential case)
 	cmd := exec.CommandContext(cmdCtx, "git", "merge", "--ff-only", branch)
 	cmd.Dir = repoDir
-	out, err := cmd.CombinedOutput()
-	if err != nil {
-		return fmt.Errorf("merge --ff-only %s: %s: %w", branch, strings.TrimSpace(string(out)), err)
+	if _, err := cmd.CombinedOutput(); err == nil {
+		slog.Debug("merged worktree branch (ff)", "branch", branch, "repo", repoDir)
+		return nil
 	}
 
-	slog.Debug("merged worktree branch", "branch", branch, "repo", repoDir)
+	// FF failed — rebase branch onto current HEAD, then retry
+	rebaseCmd := exec.CommandContext(cmdCtx, "git", "rebase", "HEAD", branch)
+	rebaseCmd.Dir = repoDir
+	rebaseCmd.Env = gitEnv
+	if out, err := rebaseCmd.CombinedOutput(); err != nil {
+		// real conflict — abort rebase and report
+		abortCmd := exec.CommandContext(cmdCtx, "git", "rebase", "--abort")
+		abortCmd.Dir = repoDir
+		_ = abortCmd.Run()
+		return fmt.Errorf("rebase %s: %s: %w", branch, strings.TrimSpace(string(out)), err)
+	}
+
+	// rebase succeeded — FF merge now guaranteed
+	ffCmd := exec.CommandContext(cmdCtx, "git", "merge", "--ff-only", branch)
+	ffCmd.Dir = repoDir
+	if out, err := ffCmd.CombinedOutput(); err != nil {
+		return fmt.Errorf("merge --ff-only after rebase %s: %s: %w", branch, strings.TrimSpace(string(out)), err)
+	}
+
+	slog.Debug("merged worktree branch (rebase+ff)", "branch", branch, "repo", repoDir)
 	return nil
 }
 
