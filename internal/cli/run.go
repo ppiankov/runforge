@@ -703,12 +703,22 @@ func aggregateTokens(results map[string]*task.TaskResult) *task.TokenUsage {
 }
 
 func filterTasks(tasks []task.Task, filter string) []task.Task {
-	patterns := strings.Split(filter, ",")
+	// expand braces first, then split on commas
+	expanded := expandBraces(filter)
+	var patterns []string
+	for _, e := range expanded {
+		for _, p := range strings.Split(e, ",") {
+			p = strings.TrimSpace(p)
+			if p != "" {
+				patterns = append(patterns, p)
+			}
+		}
+	}
+
 	var filtered []task.Task
 	for _, t := range tasks {
 		for _, p := range patterns {
-			p = strings.TrimSpace(p)
-			if p != "" && matchFilter(t.ID, p) {
+			if matchFilter(t.ID, p) {
 				filtered = append(filtered, t)
 				break
 			}
@@ -724,6 +734,31 @@ func matchFilter(id, pattern string) bool {
 	}
 	matched, err := filepath.Match(pattern, id)
 	return err == nil && matched
+}
+
+// expandBraces expands shell-style brace patterns like "prefix{a,b,c}suffix"
+// into ["prefixasuffix", "prefixbsuffix", "prefixcsuffix"].
+// Patterns without braces are returned as-is.
+func expandBraces(pattern string) []string {
+	open := strings.IndexByte(pattern, '{')
+	if open < 0 {
+		return []string{pattern}
+	}
+	close := strings.IndexByte(pattern[open:], '}')
+	if close < 0 {
+		return []string{pattern}
+	}
+	close += open
+
+	prefix := pattern[:open]
+	suffix := pattern[close+1:]
+	alternatives := strings.Split(pattern[open+1:close], ",")
+
+	var result []string
+	for _, alt := range alternatives {
+		result = append(result, expandBraces(prefix+alt+suffix)...)
+	}
+	return result
 }
 
 // mergeSettings applies settings defaults to a task file.

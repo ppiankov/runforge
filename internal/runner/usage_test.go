@@ -25,6 +25,19 @@ func TestAddUsage_Accumulate(t *testing.T) {
 	}
 }
 
+func TestAddUsage_ComputeTotalFromInputOutput(t *testing.T) {
+	result := addUsage(nil, 1000, 500, 0)
+	if result == nil {
+		t.Fatal("expected non-nil result")
+	}
+	if result.TotalTokens != 1500 {
+		t.Errorf("expected total 1500 (computed from input+output), got %d", result.TotalTokens)
+	}
+	if result.InputTokens != 1000 || result.OutputTokens != 500 {
+		t.Errorf("got %+v", result)
+	}
+}
+
 func TestAddUsage_AllZero(t *testing.T) {
 	result := addUsage(nil, 0, 0, 0)
 	if result != nil {

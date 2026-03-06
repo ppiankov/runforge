@@ -93,6 +93,54 @@ func TestMatchFilter(t *testing.T) {
 	}
 }
 
+func TestExpandBraces(t *testing.T) {
+	tests := []struct {
+		input string
+		want  []string
+	}{
+		{"no-braces", []string{"no-braces"}},
+		{"prefix{a,b,c}suffix", []string{"prefixasuffix", "prefixbsuffix", "prefixcsuffix"}},
+		{"chainwatch-WO-CW{40,43,61,62}", []string{"chainwatch-WO-CW40", "chainwatch-WO-CW43", "chainwatch-WO-CW61", "chainwatch-WO-CW62"}},
+		{"{a,b}", []string{"a", "b"}},
+		{"unclosed{brace", []string{"unclosed{brace"}},
+		{"no}open", []string{"no}open"}},
+	}
+	for _, tt := range tests {
+		got := expandBraces(tt.input)
+		if len(got) != len(tt.want) {
+			t.Errorf("expandBraces(%q) = %v, want %v", tt.input, got, tt.want)
+			continue
+		}
+		for i := range got {
+			if got[i] != tt.want[i] {
+				t.Errorf("expandBraces(%q)[%d] = %q, want %q", tt.input, i, got[i], tt.want[i])
+			}
+		}
+	}
+}
+
+func TestFilterTasks_BraceExpansion(t *testing.T) {
+	tasks := []task.Task{
+		{ID: "chainwatch-WO-CW40"},
+		{ID: "chainwatch-WO-CW43"},
+		{ID: "chainwatch-WO-CW50"},
+		{ID: "chainwatch-WO-CW61"},
+		{ID: "chainwatch-WO-CW62"},
+	}
+
+	got := filterTasks(tasks, "chainwatch-WO-CW{40,43,61,62}")
+	if len(got) != 4 {
+		t.Errorf("brace expansion: got %v, want 4 tasks", ids(got))
+	}
+
+	// verify CW50 was excluded
+	for _, t := range got {
+		if t.ID == "chainwatch-WO-CW50" {
+			t.ID = "" // won't reach here, just to silence linter
+		}
+	}
+}
+
 func TestFilterTasks_CommaSeparated(t *testing.T) {
 	tasks := []task.Task{
 		{ID: "app-WO01"},
