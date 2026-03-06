@@ -298,7 +298,7 @@ tokencontrol status --run-dir .tokencontrol/20260217-143750
 
 ```bash
 tokencontrol version
-# tokencontrol 0.2.0 (commit: 817391b, built: 2026-02-17T04:35:23Z, go: go1.26.0)
+# tokencontrol 0.15.1 (commit: 61c49dd, built: 2026-03-02T15:14:00Z, go: go1.25.7)
 ```
 
 ### `tokencontrol watch`
