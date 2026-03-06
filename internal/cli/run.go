@@ -702,43 +702,28 @@ func aggregateTokens(results map[string]*task.TaskResult) *task.TokenUsage {
 	return total
 }
 
-func filterTasks(tasks []task.Task, pattern string) []task.Task {
+func filterTasks(tasks []task.Task, filter string) []task.Task {
+	patterns := strings.Split(filter, ",")
 	var filtered []task.Task
 	for _, t := range tasks {
-		if matchGlob(t.ID, pattern) {
-			filtered = append(filtered, t)
+		for _, p := range patterns {
+			p = strings.TrimSpace(p)
+			if p != "" && matchFilter(t.ID, p) {
+				filtered = append(filtered, t)
+				break
+			}
 		}
 	}
 	return filtered
 }
 
-// matchGlob does simple glob matching supporting * wildcard.
-func matchGlob(s, pattern string) bool {
-	// handle exact match
-	if s == pattern {
+// matchFilter matches an ID against a single glob pattern using filepath.Match.
+func matchFilter(id, pattern string) bool {
+	if id == pattern {
 		return true
 	}
-
-	// handle * at end: "prefix*"
-	if strings.HasSuffix(pattern, "*") {
-		prefix := strings.TrimSuffix(pattern, "*")
-		return strings.HasPrefix(s, prefix)
-	}
-
-	// handle * at start: "*suffix"
-	if strings.HasPrefix(pattern, "*") {
-		suffix := strings.TrimPrefix(pattern, "*")
-		return strings.HasSuffix(s, suffix)
-	}
-
-	// handle * in middle: "prefix*suffix"
-	if idx := strings.Index(pattern, "*"); idx >= 0 {
-		prefix := pattern[:idx]
-		suffix := pattern[idx+1:]
-		return strings.HasPrefix(s, prefix) && strings.HasSuffix(s, suffix)
-	}
-
-	return false
+	matched, err := filepath.Match(pattern, id)
+	return err == nil && matched
 }
 
 // mergeSettings applies settings defaults to a task file.

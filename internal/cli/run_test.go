@@ -54,3 +54,88 @@ func TestBuildReport_ParentRunID(t *testing.T) {
 		t.Errorf("expected ParentRunID 'abc123def456', got %q", r2.ParentRunID)
 	}
 }
+
+func TestMatchFilter(t *testing.T) {
+	tests := []struct {
+		id      string
+		pattern string
+		want    bool
+	}{
+		// exact match
+		{"task-1", "task-1", true},
+		{"task-1", "task-2", false},
+
+		// * wildcard (backwards compat)
+		{"repo-WO01", "repo-*", true},
+		{"repo-WO01", "*WO01", true},
+		{"repo-WO01", "repo-*01", true},
+		{"other-WO01", "repo-*", false},
+
+		// ? single char
+		{"task-1", "task-?", true},
+		{"task-12", "task-?", false},
+
+		// [...] character class
+		{"task-a", "task-[abc]", true},
+		{"task-d", "task-[abc]", false},
+
+		// invalid pattern (unmatched bracket)
+		{"task-1", "task-[", false},
+
+		// empty
+		{"task-1", "", false},
+	}
+	for _, tt := range tests {
+		got := matchFilter(tt.id, tt.pattern)
+		if got != tt.want {
+			t.Errorf("matchFilter(%q, %q) = %v, want %v", tt.id, tt.pattern, got, tt.want)
+		}
+	}
+}
+
+func TestFilterTasks_CommaSeparated(t *testing.T) {
+	tasks := []task.Task{
+		{ID: "app-WO01"},
+		{ID: "app-WO02"},
+		{ID: "app-WO03"},
+		{ID: "lib-WO01"},
+	}
+
+	// exact IDs
+	got := filterTasks(tasks, "app-WO01,app-WO03")
+	if len(got) != 2 || got[0].ID != "app-WO01" || got[1].ID != "app-WO03" {
+		t.Errorf("comma-separated exact: got %v", ids(got))
+	}
+
+	// mix glob + exact
+	got = filterTasks(tasks, "app-*,lib-WO01")
+	if len(got) != 4 {
+		t.Errorf("comma glob+exact: got %v, want all 4", ids(got))
+	}
+
+	// single pattern (backwards compat)
+	got = filterTasks(tasks, "app-*")
+	if len(got) != 3 {
+		t.Errorf("single glob: got %v, want 3 app tasks", ids(got))
+	}
+
+	// no matches
+	got = filterTasks(tasks, "nonexistent")
+	if len(got) != 0 {
+		t.Errorf("no matches: got %v, want empty", ids(got))
+	}
+
+	// spaces around commas
+	got = filterTasks(tasks, "app-WO01 , app-WO02")
+	if len(got) != 2 {
+		t.Errorf("spaces: got %v, want 2", ids(got))
+	}
+}
+
+func ids(tasks []task.Task) []string {
+	out := make([]string, len(tasks))
+	for i, t := range tasks {
+		out[i] = t.ID
+	}
+	return out
+}
