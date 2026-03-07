@@ -39,6 +39,18 @@ type Settings struct {
 
 	// Scan configuration
 	Scan *ScanConfig `yaml:"scan,omitempty"`
+
+	// Codex quota preflight guard before dispatch.
+	CodexQuota *CodexQuotaConfig `yaml:"codex_quota,omitempty"`
+}
+
+// CodexQuotaConfig controls preflight budget checks for codex-bound tasks.
+type CodexQuotaConfig struct {
+	RemainingTokens int     `yaml:"remaining_tokens,omitempty"`
+	ReserveTokens   int     `yaml:"reserve_tokens,omitempty"`
+	SafetyFactor    float64 `yaml:"safety_factor,omitempty"`
+	Enforce         bool    `yaml:"enforce,omitempty"`
+	LookbackRuns    int     `yaml:"lookback_runs,omitempty"`
 }
 
 // ScanConfig holds settings for the scan command.

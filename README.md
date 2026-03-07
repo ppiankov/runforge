@@ -238,6 +238,11 @@ This creates an accountability pipeline: every AI agent task is tracked — whic
 | `--tui MODE` | `auto` | Display mode: `full` (interactive TUI), `minimal` (live status), `off` (no live display), `auto` (detect TTY) |
 | `--allow-free` | `false` | Include free-tier runners in fallback cascade |
 | `--retry` | `false` | Re-execute failed and interrupted tasks (skips completed) |
+| `--codex-quota-remaining N` | `0` | Remaining Codex token budget; `0` disables quota preflight |
+| `--codex-quota-reserve N` | `0` | Tokens to reserve (not spend) from remaining budget |
+| `--codex-quota-safety X` | `1.3` | Safety multiplier on estimated Codex tokens |
+| `--codex-quota-enforce` | `true` | Block run when preflight predicts quota shortfall |
+| `--codex-quota-lookback N` | `20` | Number of recent run reports to use for token history |
 | `--no-auto-commit` | `false` | Disable post-task auto-commit |
 | `--parallel-repo` | `false` | Enable worktree-based parallel execution for same-repo tasks |
 

@@ -102,6 +102,41 @@ func TestLoadSettings_Duration(t *testing.T) {
 	}
 }
 
+func TestLoadSettings_CodexQuota(t *testing.T) {
+	content := `
+codex_quota:
+  remaining_tokens: 12000000
+  reserve_tokens: 1500000
+  safety_factor: 1.4
+  enforce: true
+  lookback_runs: 25
+`
+	path := writeTemp(t, content)
+	s, err := LoadSettings(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if s.CodexQuota == nil {
+		t.Fatal("expected codex_quota to be loaded")
+	}
+	if s.CodexQuota.RemainingTokens != 12000000 {
+		t.Errorf("remaining_tokens: got %d, want 12000000", s.CodexQuota.RemainingTokens)
+	}
+	if s.CodexQuota.ReserveTokens != 1500000 {
+		t.Errorf("reserve_tokens: got %d, want 1500000", s.CodexQuota.ReserveTokens)
+	}
+	if s.CodexQuota.SafetyFactor != 1.4 {
+		t.Errorf("safety_factor: got %.2f, want 1.4", s.CodexQuota.SafetyFactor)
+	}
+	if !s.CodexQuota.Enforce {
+		t.Error("enforce: got false, want true")
+	}
+	if s.CodexQuota.LookbackRuns != 25 {
+		t.Errorf("lookback_runs: got %d, want 25", s.CodexQuota.LookbackRuns)
+	}
+}
+
 func writeTemp(t *testing.T, content string) string {
 	t.Helper()
 	path := filepath.Join(t.TempDir(), ".tokencontrol.yml")

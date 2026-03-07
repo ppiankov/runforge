@@ -42,6 +42,12 @@ func newRunCmd() *cobra.Command {
 		retry        bool
 		noAutoCommit bool
 		parallelRepo bool
+
+		codexQuotaRemaining int
+		codexQuotaReserve   int
+		codexQuotaLookback  int
+		codexQuotaSafety    float64
+		codexQuotaEnforce   bool
 	)
 
 	cmd := &cobra.Command{
@@ -70,7 +76,31 @@ func newRunCmd() *cobra.Command {
 			if !cmd.Flags().Changed("verify") && cfg.Verify {
 				verify = cfg.Verify
 			}
-			return runTasks(tasksFile, workers, verify, reposDir, filter, dryRun, maxRuntime, idleTimeout, failFast, tuiMode, allowFree, retry, noAutoCommit, parallelRepo, cfg)
+			if cfg.CodexQuota != nil {
+				if !cmd.Flags().Changed("codex-quota-remaining") && cfg.CodexQuota.RemainingTokens > 0 {
+					codexQuotaRemaining = cfg.CodexQuota.RemainingTokens
+				}
+				if !cmd.Flags().Changed("codex-quota-reserve") && cfg.CodexQuota.ReserveTokens >= 0 {
+					codexQuotaReserve = cfg.CodexQuota.ReserveTokens
+				}
+				if !cmd.Flags().Changed("codex-quota-safety") && cfg.CodexQuota.SafetyFactor > 0 {
+					codexQuotaSafety = cfg.CodexQuota.SafetyFactor
+				}
+				if !cmd.Flags().Changed("codex-quota-enforce") {
+					codexQuotaEnforce = cfg.CodexQuota.Enforce
+				}
+				if !cmd.Flags().Changed("codex-quota-lookback") && cfg.CodexQuota.LookbackRuns > 0 {
+					codexQuotaLookback = cfg.CodexQuota.LookbackRuns
+				}
+			}
+			quotaCfg := quotaPreflightConfig{
+				RemainingTokens: codexQuotaRemaining,
+				ReserveTokens:   codexQuotaReserve,
+				SafetyFactor:    codexQuotaSafety,
+				Enforce:         codexQuotaEnforce,
+				LookbackRuns:    codexQuotaLookback,
+			}
+			return runTasks(tasksFile, workers, verify, reposDir, filter, dryRun, maxRuntime, idleTimeout, failFast, tuiMode, allowFree, retry, noAutoCommit, parallelRepo, quotaCfg, cfg)
 		},
 	}
 
@@ -88,11 +118,16 @@ func newRunCmd() *cobra.Command {
 	cmd.Flags().BoolVar(&retry, "retry", false, "re-execute failed and interrupted tasks")
 	cmd.Flags().BoolVar(&noAutoCommit, "no-auto-commit", false, "disable auto-commit of uncommitted changes after task completion")
 	cmd.Flags().BoolVar(&parallelRepo, "parallel-repo", false, "use git worktrees for parallel same-repo task execution")
+	cmd.Flags().IntVar(&codexQuotaRemaining, "codex-quota-remaining", 0, "remaining codex budget in tokens; 0 disables quota preflight")
+	cmd.Flags().IntVar(&codexQuotaReserve, "codex-quota-reserve", 0, "tokens to hold back from codex remaining budget")
+	cmd.Flags().Float64Var(&codexQuotaSafety, "codex-quota-safety", defaultQuotaSafetyFactor, "multiplier applied to estimated codex tokens")
+	cmd.Flags().BoolVar(&codexQuotaEnforce, "codex-quota-enforce", true, "block run when codex quota preflight predicts shortfall")
+	cmd.Flags().IntVar(&codexQuotaLookback, "codex-quota-lookback", defaultQuotaLookbackRuns, "number of recent run reports to sample for codex token history")
 
 	return cmd
 }
 
-func runTasks(tasksFile string, workers int, verify bool, reposDir, filter string, dryRun bool, maxRuntime, idleTimeout time.Duration, failFast bool, tuiMode string, allowFree, retry, noAutoCommit, parallelRepo bool, cfg *config.Settings) error {
+func runTasks(tasksFile string, workers int, verify bool, reposDir, filter string, dryRun bool, maxRuntime, idleTimeout time.Duration, failFast bool, tuiMode string, allowFree, retry, noAutoCommit, parallelRepo bool, quotaCfg quotaPreflightConfig, cfg *config.Settings) error {
 	// resolve glob pattern to concrete file paths
 	paths, err := config.ResolveGlob(tasksFile)
 	if err != nil {
@@ -157,6 +192,32 @@ func runTasks(tasksFile string, workers int, verify bool, reposDir, filter strin
 	reposDir, err = filepath.Abs(reposDir)
 	if err != nil {
 		return fmt.Errorf("resolve repos dir: %w", err)
+	}
+
+	if !dryRun && quotaCfg.enabled() {
+		quotaResult, err := runCodexQuotaPreflight(tasks, tf.Runners, quotaCfg, ".tokencontrol")
+		if err != nil {
+			return err
+		}
+		if quotaResult != nil && quotaResult.CodexTasks > 0 {
+			fmt.Fprintf(
+				os.Stdout,
+				"codex quota preflight: %d tasks, estimate %s, required %s, available %s (history: %d, heuristic: %d)\n",
+				quotaResult.CodexTasks,
+				formatTokenCount(quotaResult.EstimatedTokens),
+				formatTokenCount(quotaResult.RequiredTokens),
+				formatTokenCount(quotaResult.AvailableTokens),
+				quotaResult.HistoricalTasks,
+				quotaResult.HeuristicTasks,
+			)
+			if quotaResult.ShortfallTokens > 0 {
+				fmt.Fprintf(
+					os.Stdout,
+					"  warning: estimated shortfall %s (continuing because --codex-quota-enforce=false)\n",
+					formatTokenCount(quotaResult.ShortfallTokens),
+				)
+			}
+		}
 	}
 
 	// validate repos exist
