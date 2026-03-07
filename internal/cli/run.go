@@ -1048,10 +1048,11 @@ func writeTaskMeta(outputDir string, t *task.Task) {
 
 // checkConnectivity performs a quick DNS lookup to verify network availability.
 // Fails fast with a clear message instead of letting tasks timeout with cryptic errors.
+// Uses dns.google as a provider-neutral probe target.
 func checkConnectivity() error {
-	_, err := net.LookupHost("api.openai.com")
+	_, err := net.LookupHost("dns.google")
 	if err != nil {
-		return fmt.Errorf("no network connectivity (DNS lookup failed): %w", err)
+		return fmt.Errorf("no network connectivity — check your WiFi/ethernet connection (DNS lookup failed for dns.google): %w", err)
 	}
 	return nil
 }
