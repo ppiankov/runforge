@@ -180,6 +180,32 @@ func TestFilterTasks_CommaSeparated(t *testing.T) {
 	}
 }
 
+func TestCheckConnectivity(t *testing.T) {
+	// should succeed when network is available (test environment has network)
+	err := checkConnectivity()
+	if err != nil {
+		t.Skipf("skipping: no network in test environment: %v", err)
+	}
+}
+
+func TestAllScriptTasks(t *testing.T) {
+	tests := []struct {
+		name  string
+		tasks []task.Task
+		want  bool
+	}{
+		{"all script", []task.Task{{Runner: "script"}, {Runner: "script"}}, true},
+		{"mixed", []task.Task{{Runner: "script"}, {Runner: "codex"}}, false},
+		{"none script", []task.Task{{Runner: "codex"}, {Runner: "claude"}}, false},
+		{"empty", []task.Task{}, true},
+	}
+	for _, tt := range tests {
+		if got := allScriptTasks(tt.tasks); got != tt.want {
+			t.Errorf("allScriptTasks(%s) = %v, want %v", tt.name, got, tt.want)
+		}
+	}
+}
+
 func ids(tasks []task.Task) []string {
 	out := make([]string, len(tasks))
 	for i, t := range tasks {

@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log/slog"
+	"net"
 	"os"
 	"os/exec"
 	"os/signal"
@@ -163,6 +164,13 @@ func runTasks(tasksFile string, workers int, verify bool, reposDir, filter strin
 	if !dryRun {
 		if err := config.ValidateRepos(filteredTF, reposDir); err != nil {
 			return err
+		}
+	}
+
+	// pre-flight connectivity check (skip for dry-run and script-only runs)
+	if !dryRun && !allScriptTasks(tasks) {
+		if err := checkConnectivity(); err != nil {
+			return fmt.Errorf("pre-flight check: %w", err)
 		}
 	}
 
@@ -1036,4 +1044,24 @@ func writeTaskMeta(outputDir string, t *task.Task) {
 		return
 	}
 	_ = os.WriteFile(filepath.Join(outputDir, "task.json"), data, 0o644)
+}
+
+// checkConnectivity performs a quick DNS lookup to verify network availability.
+// Fails fast with a clear message instead of letting tasks timeout with cryptic errors.
+func checkConnectivity() error {
+	_, err := net.LookupHost("api.openai.com")
+	if err != nil {
+		return fmt.Errorf("no network connectivity (DNS lookup failed): %w", err)
+	}
+	return nil
+}
+
+// allScriptTasks returns true if every task uses the "script" runner (no network needed).
+func allScriptTasks(tasks []task.Task) bool {
+	for _, t := range tasks {
+		if t.Runner != "script" {
+			return false
+		}
+	}
+	return true
 }
