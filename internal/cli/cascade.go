@@ -132,7 +132,7 @@ func RunWithCascade(
 			if result.ConnectivityError != "" {
 				slog.Warn("runner connectivity error, blacklisting",
 					"task", t.ID, "runner", name, "error", result.ConnectivityError)
-				blacklist.Block(name, time.Now().Add(24*time.Hour))
+				blacklist.Block(name, time.Now().Add(1*time.Hour))
 			} else {
 				slog.Warn("runner failed, trying next", "task", t.ID, "runner", name, "error", result.Error)
 			}
