@@ -235,6 +235,28 @@ func runTasks(tasksFile string, workers int, verify bool, reposDir, filter strin
 		}
 	}
 
+	// provider quota preflight (auto-detects from env vars)
+	if !dryRun && !allScriptTasks(tasks) {
+		quotaCtx, quotaCancel := context.WithTimeout(context.Background(), 30*time.Second)
+		quotaInfos := runner.CheckAllQuotas(quotaCtx, os.Getenv)
+		quotaCancel()
+		for _, qi := range quotaInfos {
+			if qi.Error != "" && qi.UsedTokens == 0 && qi.Balance == "" {
+				slog.Debug("quota check", "provider", qi.Provider, "note", qi.Error)
+				continue
+			}
+			if !qi.Available {
+				return fmt.Errorf("provider %s quota exhausted: %s (run 'tokencontrol quota' for details)", qi.Provider, qi.Error)
+			}
+			if qi.UsedTokens > 0 {
+				slog.Info("provider quota", "provider", qi.Provider, "used_7d", formatTokenCount(qi.UsedTokens), "burn_rate", formatTokenCount(qi.BurnRatePerDay)+"/day")
+			}
+			if qi.Balance != "" {
+				slog.Info("provider quota", "provider", qi.Provider, "balance", "$"+qi.Balance+" "+qi.Currency, "available", qi.Available)
+			}
+		}
+	}
+
 	// build graph
 	graph, err := task.BuildGraph(tasks)
 	if err != nil {
