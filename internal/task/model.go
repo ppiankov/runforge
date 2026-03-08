@@ -129,6 +129,7 @@ type ReviewConfig struct {
 // AttemptInfo records a single runner attempt within a fallback cascade.
 type AttemptInfo struct {
 	Runner            string        `json:"runner"`
+	Retry             int           `json:"retry,omitempty"` // 0 = first try, 1+ = retry of same runner
 	State             TaskState     `json:"state"`
 	Duration          time.Duration `json:"duration"`
 	Error             string        `json:"error,omitempty"`
@@ -196,6 +197,7 @@ type RunReport struct {
 	FalsePositives int                    `json:"false_positives,omitempty"`
 	AutoCommits    int                    `json:"auto_commits,omitempty"`
 	MergeConflicts int                    `json:"merge_conflicts,omitempty"`
+	Retries        int                    `json:"retries,omitempty"`
 	TotalDuration  time.Duration          `json:"total_duration"`
 	ResetsAt       time.Time              `json:"resets_at,omitempty"`
 	TotalTokens    *TokenUsage            `json:"total_tokens,omitempty"`

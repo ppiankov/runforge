@@ -42,6 +42,7 @@ func newRunCmd() *cobra.Command {
 		retry        bool
 		noAutoCommit bool
 		parallelRepo bool
+		maxRetries   int
 
 		codexQuotaRemaining int
 		codexQuotaReserve   int
@@ -100,7 +101,7 @@ func newRunCmd() *cobra.Command {
 				Enforce:         codexQuotaEnforce,
 				LookbackRuns:    codexQuotaLookback,
 			}
-			return runTasks(tasksFile, workers, verify, reposDir, filter, dryRun, maxRuntime, idleTimeout, failFast, tuiMode, allowFree, retry, noAutoCommit, parallelRepo, quotaCfg, cfg)
+			return runTasks(tasksFile, workers, verify, reposDir, filter, dryRun, maxRuntime, idleTimeout, failFast, tuiMode, allowFree, retry, noAutoCommit, parallelRepo, maxRetries, quotaCfg, cfg)
 		},
 	}
 
@@ -118,6 +119,7 @@ func newRunCmd() *cobra.Command {
 	cmd.Flags().BoolVar(&retry, "retry", false, "re-execute failed and interrupted tasks")
 	cmd.Flags().BoolVar(&noAutoCommit, "no-auto-commit", false, "disable auto-commit of uncommitted changes after task completion")
 	cmd.Flags().BoolVar(&parallelRepo, "parallel-repo", false, "use git worktrees for parallel same-repo task execution")
+	cmd.Flags().IntVar(&maxRetries, "max-retries", 2, "max retries per runner on transient failures (connectivity, idle timeout); 0 disables")
 	cmd.Flags().IntVar(&codexQuotaRemaining, "codex-quota-remaining", 0, "remaining codex budget in tokens; 0 disables quota preflight")
 	cmd.Flags().IntVar(&codexQuotaReserve, "codex-quota-reserve", 0, "tokens to hold back from codex remaining budget")
 	cmd.Flags().Float64Var(&codexQuotaSafety, "codex-quota-safety", defaultQuotaSafetyFactor, "multiplier applied to estimated codex tokens")
@@ -127,7 +129,7 @@ func newRunCmd() *cobra.Command {
 	return cmd
 }
 
-func runTasks(tasksFile string, workers int, verify bool, reposDir, filter string, dryRun bool, maxRuntime, idleTimeout time.Duration, failFast bool, tuiMode string, allowFree, retry, noAutoCommit, parallelRepo bool, quotaCfg quotaPreflightConfig, cfg *config.Settings) error {
+func runTasks(tasksFile string, workers int, verify bool, reposDir, filter string, dryRun bool, maxRuntime, idleTimeout time.Duration, failFast bool, tuiMode string, allowFree, retry, noAutoCommit, parallelRepo bool, maxRetries int, quotaCfg quotaPreflightConfig, cfg *config.Settings) error {
 	// resolve glob pattern to concrete file paths
 	paths, err := config.ResolveGlob(tasksFile)
 	if err != nil {
@@ -320,6 +322,7 @@ func runTasks(tasksFile string, workers int, verify bool, reposDir, filter strin
 		reposDir:     reposDir,
 		filter:       filter,
 		maxRuntime:   maxRuntime,
+		maxRetries:   maxRetries,
 		idleTimeout:  idleTimeout,
 		failFast:     failFast,
 		postRun:      cfg.PostRun,
@@ -365,6 +368,7 @@ type execRunConfig struct {
 	reposDir     string
 	filter       string
 	maxRuntime   time.Duration
+	maxRetries   int
 	idleTimeout  time.Duration
 	failFast     bool
 	parentRunID  string                                    // links rerun to original run
@@ -560,7 +564,7 @@ func executeRun(cfg execRunConfig) (*execRunResult, error) {
 				EndedAt: time.Now(),
 			}
 		}
-		result := RunWithCascade(ctx, t, execDir, outputDir, runners, cascade, cfg.maxRuntime, blacklist, graylist, limiter)
+		result := RunWithCascade(ctx, t, execDir, outputDir, runners, cascade, cfg.maxRuntime, cfg.maxRetries, blacklist, graylist, limiter)
 
 		// auto-commit uncommitted changes for successful tasks
 		if result.State == task.StateCompleted && !cfg.noAutoCommit {
@@ -769,6 +773,12 @@ func buildReport(tasksFiles []string, workers int, filter, reposDir string, resu
 			report.RateLimited++
 			if !r.ResetsAt.IsZero() && (report.ResetsAt.IsZero() || r.ResetsAt.After(report.ResetsAt)) {
 				report.ResetsAt = r.ResetsAt
+			}
+		}
+		// count retry attempts across all tasks
+		for _, a := range r.Attempts {
+			if a.Retry > 0 {
+				report.Retries++
 			}
 		}
 	}

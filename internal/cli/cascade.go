@@ -5,6 +5,7 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"net"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -15,8 +16,13 @@ import (
 	"github.com/ppiankov/tokencontrol/internal/task"
 )
 
+// retryBackoffs defines the sleep duration before each retry attempt.
+var retryBackoffs = []time.Duration{30 * time.Second, 60 * time.Second}
+
 // RunWithCascade attempts to run a task using a sequence of runners.
 // On rate-limit or failure, it falls to the next runner in the list.
+// Transient failures (connectivity, idle timeout) are retried up to maxRetries
+// times with backoff before falling to the next runner.
 // It records all attempts and populates RunnerUsed on the final result.
 func RunWithCascade(
 	ctx context.Context,
@@ -25,6 +31,7 @@ func RunWithCascade(
 	runners map[string]runner.Runner,
 	runnerNames []string,
 	maxRuntime time.Duration,
+	maxRetries int,
 	blacklist *runner.RunnerBlacklist,
 	graylist *runner.RunnerGraylist,
 	limiter *runner.ProviderLimiter,
@@ -62,68 +69,108 @@ func RunWithCascade(
 			continue
 		}
 
-		// determine output dir for this attempt
-		attemptDir := outputDir
-		if i > 0 {
-			attemptDir = filepath.Join(outputDir, fmt.Sprintf("attempt-%d-%s", i+1, name))
-			if err := os.MkdirAll(attemptDir, 0o755); err != nil {
-				attempts = append(attempts, task.AttemptInfo{
-					Runner: name,
-					State:  task.StateFailed,
-					Error:  fmt.Sprintf("create attempt dir: %v", err),
-				})
-				continue
+		// retry loop: try the same runner up to maxRetries+1 times on transient failures
+		var result *task.TaskResult
+		for retry := 0; retry <= maxRetries; retry++ {
+			if retry > 0 {
+				// backoff before retry
+				backoff := retryBackoff(retry)
+				slog.Info("retrying runner after transient failure",
+					"task", t.ID, "runner", name, "retry", retry, "backoff", backoff)
+
+				// re-check connectivity before retrying — don't waste time if still offline
+				if !checkConnectivityQuick() {
+					slog.Warn("still offline, skipping retry",
+						"task", t.ID, "runner", name, "retry", retry)
+					break
+				}
+
+				select {
+				case <-ctx.Done():
+					break
+				case <-time.After(backoff):
+				}
+				if ctx.Err() != nil {
+					break
+				}
+			}
+
+			// determine output dir for this attempt
+			attemptDir := outputDir
+			if i > 0 || retry > 0 {
+				label := fmt.Sprintf("attempt-%d-%s", i+1, name)
+				if retry > 0 {
+					label = fmt.Sprintf("retry-%d-%s", retry, name)
+				}
+				attemptDir = filepath.Join(outputDir, label)
+				if err := os.MkdirAll(attemptDir, 0o755); err != nil {
+					attempts = append(attempts, task.AttemptInfo{
+						Runner: name,
+						Retry:  retry,
+						State:  task.StateFailed,
+						Error:  fmt.Sprintf("create attempt dir: %v", err),
+					})
+					continue
+				}
+			}
+
+			// capture HEAD before run so we can detect new commits
+			headBefore := gitHead(repoDir)
+
+			if limiter != nil {
+				limiter.Acquire(name)
+			}
+			taskCtx, taskCancel := context.WithTimeout(ctx, maxRuntime)
+			start := time.Now()
+			result = r.Run(taskCtx, t, repoDir, attemptDir)
+			taskCancel()
+			if limiter != nil {
+				limiter.Release(name)
+			}
+			elapsed := time.Since(start)
+
+			// Scan output files for leaked secrets and redact in place.
+			if leaks := runner.ScanOutputDir(attemptDir); leaks > 0 {
+				slog.Warn("output scan found secrets", "task", t.ID, "runner", name, "leaks", leaks)
+			}
+
+			attempts = append(attempts, task.AttemptInfo{
+				Runner:            name,
+				Retry:             retry,
+				State:             result.State,
+				Duration:          elapsed,
+				Error:             result.Error,
+				OutputDir:         attemptDir,
+				ConnectivityError: result.ConnectivityError,
+			})
+
+			// on success, check for false positive and return
+			if result.State == task.StateCompleted {
+				result.RunnerUsed = name
+				result.Attempts = attempts
+				if isFalsePositive(attemptDir, repoDir, headBefore) {
+					result.FalsePositive = true
+					slog.Warn("false positive: no new commits after task completion",
+						"task", t.ID, "runner", name)
+				}
+				return result
+			}
+
+			// only retry on transient failures
+			if !isTransientFailure(result) {
+				break
 			}
 		}
-
-		// capture HEAD before run so we can detect new commits
-		headBefore := gitHead(repoDir)
-
-		if limiter != nil {
-			limiter.Acquire(name)
-		}
-		taskCtx, taskCancel := context.WithTimeout(ctx, maxRuntime)
-		start := time.Now()
-		result := r.Run(taskCtx, t, repoDir, attemptDir)
-		taskCancel()
-		if limiter != nil {
-			limiter.Release(name)
-		}
-		elapsed := time.Since(start)
-
-		// Scan output files for leaked secrets and redact in place.
-		if leaks := runner.ScanOutputDir(attemptDir); leaks > 0 {
-			slog.Warn("output scan found secrets", "task", t.ID, "runner", name, "leaks", leaks)
-		}
-
-		attempts = append(attempts, task.AttemptInfo{
-			Runner:            name,
-			State:             result.State,
-			Duration:          elapsed,
-			Error:             result.Error,
-			OutputDir:         attemptDir,
-			ConnectivityError: result.ConnectivityError,
-		})
 
 		lastResult = result
 
+		// handle final result for this runner (after retries exhausted or non-transient)
 		switch result.State {
-		case task.StateCompleted:
-			result.RunnerUsed = name
-			result.Attempts = attempts
-			if isFalsePositive(attemptDir, repoDir, headBefore) {
-				result.FalsePositive = true
-				slog.Warn("false positive: no new commits after task completion",
-					"task", t.ID, "runner", name)
-			}
-			return result
-
 		case task.StateRateLimited:
 			slog.Warn("runner rate-limited, trying next", "task", t.ID, "runner", name)
 			if !result.ResetsAt.IsZero() {
 				blacklist.Block(name, result.ResetsAt)
 			} else {
-				// block for 1 hour if no resets_at provided
 				blacklist.Block(name, time.Now().Add(1*time.Hour))
 			}
 			continue
@@ -152,6 +199,40 @@ func RunWithCascade(
 	lastResult.RunnerUsed = runnerNames[len(runnerNames)-1]
 	lastResult.Attempts = attempts
 	return lastResult
+}
+
+// isTransientFailure returns true for failures that may resolve on retry:
+// connectivity errors (except permanent TLS cert issues) and idle timeouts.
+// Rate limits are NOT transient here — they have their own blacklist+cascade logic.
+func isTransientFailure(result *task.TaskResult) bool {
+	if result.State != task.StateFailed {
+		return false
+	}
+	if result.ConnectivityError != "" {
+		return result.ConnectivityError != "TLS certificate expired"
+	}
+	if strings.Contains(result.Error, "idle timeout") {
+		return true
+	}
+	return false
+}
+
+// retryBackoff returns the backoff duration for a given retry number (1-indexed).
+func retryBackoff(retry int) time.Duration {
+	if retry <= 0 {
+		return 0
+	}
+	idx := retry - 1
+	if idx >= len(retryBackoffs) {
+		return retryBackoffs[len(retryBackoffs)-1]
+	}
+	return retryBackoffs[idx]
+}
+
+// checkConnectivityQuick does a fast DNS lookup to verify network is available.
+func checkConnectivityQuick() bool {
+	_, err := net.LookupHost("dns.google")
+	return err == nil
 }
 
 // buildRunnerRegistry constructs runner instances from built-in defaults

@@ -169,6 +169,9 @@ func (r *TextReporter) PrintSummary(report *task.RunReport) {
 	if report.MergeConflicts > 0 {
 		fmt.Fprintf(r.w, "%sMerge conflicts: %d%s  ", r.c(colorRed), report.MergeConflicts, r.c(colorReset))
 	}
+	if report.Retries > 0 {
+		fmt.Fprintf(r.w, "%sRetries: %d%s  ", r.c(colorYellow), report.Retries, r.c(colorReset))
+	}
 	fallbackCount := countFallbacks(report)
 	if fallbackCount > 0 {
 		fmt.Fprintf(r.w, "%sFallback: %d%s  ", r.c(colorYellow), fallbackCount, r.c(colorReset))
@@ -270,22 +273,39 @@ func (r *TextReporter) c(code string) string {
 
 // runnerSuffix returns runner and review info for display.
 // Completed on primary: " (codex)"
+// Completed after retry: " (codex, 1 retry)"
 // Completed with fallback: " (via zai, reviewed ✓)"
 // Failed after cascade: " (tried codex→zai→claude)"
 func runnerSuffix(res *task.TaskResult) string {
 	var parts []string
+	retryCount := countRetries(res.Attempts)
 	if len(res.Attempts) > 1 {
 		if res.State == task.StateCompleted && res.RunnerUsed != "" {
-			parts = append(parts, fmt.Sprintf("via %s", res.RunnerUsed))
+			// check if completion was via fallback or just retries of same runner
+			uniqueRunners := uniqueAttemptRunners(res.Attempts)
+			if len(uniqueRunners) > 1 {
+				parts = append(parts, fmt.Sprintf("via %s", res.RunnerUsed))
+			} else {
+				parts = append(parts, res.RunnerUsed)
+			}
 		} else {
 			var tried []string
 			for _, a := range res.Attempts {
-				tried = append(tried, a.Runner)
+				if a.Retry == 0 { // only show first attempt per runner
+					tried = append(tried, a.Runner)
+				}
 			}
 			parts = append(parts, fmt.Sprintf("tried %s", strings.Join(tried, "→")))
 		}
 	} else if res.RunnerUsed != "" {
 		parts = append(parts, res.RunnerUsed)
+	}
+	if retryCount > 0 {
+		label := "retry"
+		if retryCount > 1 {
+			label = "retries"
+		}
+		parts = append(parts, fmt.Sprintf("%d %s", retryCount, label))
 	}
 	if res.AutoCommitted {
 		parts = append(parts, "auto-committed")
@@ -309,6 +329,30 @@ func runnerSuffix(res *task.TaskResult) string {
 		return ""
 	}
 	return " (" + strings.Join(parts, ", ") + ")"
+}
+
+// countRetries counts retry attempts in a task's attempt list.
+func countRetries(attempts []task.AttemptInfo) int {
+	n := 0
+	for _, a := range attempts {
+		if a.Retry > 0 {
+			n++
+		}
+	}
+	return n
+}
+
+// uniqueAttemptRunners returns deduplicated runner names from attempts.
+func uniqueAttemptRunners(attempts []task.AttemptInfo) []string {
+	seen := make(map[string]bool)
+	var unique []string
+	for _, a := range attempts {
+		if !seen[a.Runner] {
+			seen[a.Runner] = true
+			unique = append(unique, a.Runner)
+		}
+	}
+	return unique
 }
 
 // countFallbacks counts tasks that used a non-primary runner.

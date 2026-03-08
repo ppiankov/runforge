@@ -51,7 +51,7 @@ func TestCascade_FirstSucceeds(t *testing.T) {
 
 	tk := &task.Task{ID: "test-1", Repo: "test/repo", Prompt: "do stuff"}
 	bl := runner.NewRunnerBlacklist()
-	result := RunWithCascade(context.Background(), tk, "/tmp", t.TempDir(), runners, []string{"codex", "zai"}, 5*time.Minute, bl, nil, nil)
+	result := RunWithCascade(context.Background(), tk, "/tmp", t.TempDir(), runners, []string{"codex", "zai"}, 5*time.Minute, 0, bl, nil, nil)
 
 	if result.State != task.StateCompleted {
 		t.Fatalf("expected completed, got %s", result.State)
@@ -77,7 +77,7 @@ func TestCascade_FirstRateLimited(t *testing.T) {
 
 	tk := &task.Task{ID: "test-2", Repo: "test/repo", Prompt: "do stuff"}
 	bl := runner.NewRunnerBlacklist()
-	result := RunWithCascade(context.Background(), tk, "/tmp", t.TempDir(), runners, []string{"codex", "zai"}, 5*time.Minute, bl, nil, nil)
+	result := RunWithCascade(context.Background(), tk, "/tmp", t.TempDir(), runners, []string{"codex", "zai"}, 5*time.Minute, 0, bl, nil, nil)
 
 	if result.State != task.StateCompleted {
 		t.Fatalf("expected completed, got %s", result.State)
@@ -102,7 +102,7 @@ func TestCascade_FirstFailed(t *testing.T) {
 
 	tk := &task.Task{ID: "test-3", Repo: "test/repo", Prompt: "do stuff"}
 	bl := runner.NewRunnerBlacklist()
-	result := RunWithCascade(context.Background(), tk, "/tmp", t.TempDir(), runners, []string{"codex", "zai"}, 5*time.Minute, bl, nil, nil)
+	result := RunWithCascade(context.Background(), tk, "/tmp", t.TempDir(), runners, []string{"codex", "zai"}, 5*time.Minute, 0, bl, nil, nil)
 
 	if result.State != task.StateCompleted {
 		t.Fatalf("expected completed, got %s", result.State)
@@ -124,7 +124,7 @@ func TestCascade_AllFail(t *testing.T) {
 
 	tk := &task.Task{ID: "test-4", Repo: "test/repo", Prompt: "do stuff"}
 	bl := runner.NewRunnerBlacklist()
-	result := RunWithCascade(context.Background(), tk, "/tmp", t.TempDir(), runners, []string{"codex", "zai"}, 5*time.Minute, bl, nil, nil)
+	result := RunWithCascade(context.Background(), tk, "/tmp", t.TempDir(), runners, []string{"codex", "zai"}, 5*time.Minute, 0, bl, nil, nil)
 
 	if result.State != task.StateFailed {
 		t.Fatalf("expected failed, got %s", result.State)
@@ -151,7 +151,7 @@ func TestCascade_BlacklistSkips(t *testing.T) {
 	bl.Block("codex", time.Now().Add(4*time.Hour))
 
 	tk := &task.Task{ID: "test-5", Repo: "test/repo", Prompt: "do stuff"}
-	result := RunWithCascade(context.Background(), tk, "/tmp", t.TempDir(), runners, []string{"codex", "zai"}, 5*time.Minute, bl, nil, nil)
+	result := RunWithCascade(context.Background(), tk, "/tmp", t.TempDir(), runners, []string{"codex", "zai"}, 5*time.Minute, 0, bl, nil, nil)
 
 	if result.State != task.StateCompleted {
 		t.Fatalf("expected completed, got %s", result.State)
@@ -177,7 +177,7 @@ func TestCascade_NoFallbacks(t *testing.T) {
 
 	tk := &task.Task{ID: "test-6", Repo: "test/repo", Prompt: "do stuff"}
 	bl := runner.NewRunnerBlacklist()
-	result := RunWithCascade(context.Background(), tk, "/tmp", t.TempDir(), runners, []string{"codex"}, 5*time.Minute, bl, nil, nil)
+	result := RunWithCascade(context.Background(), tk, "/tmp", t.TempDir(), runners, []string{"codex"}, 5*time.Minute, 0, bl, nil, nil)
 
 	if result.State != task.StateCompleted {
 		t.Fatalf("expected completed, got %s", result.State)
@@ -206,7 +206,7 @@ func TestCascade_AttemptsRecorded(t *testing.T) {
 
 	tk := &task.Task{ID: "test-7", Repo: "test/repo", Prompt: "do stuff"}
 	bl := runner.NewRunnerBlacklist()
-	result := RunWithCascade(context.Background(), tk, "/tmp", t.TempDir(), runners, []string{"codex", "zai", "claude-api"}, 5*time.Minute, bl, nil, nil)
+	result := RunWithCascade(context.Background(), tk, "/tmp", t.TempDir(), runners, []string{"codex", "zai", "claude-api"}, 5*time.Minute, 0, bl, nil, nil)
 
 	if result.State != task.StateCompleted {
 		t.Fatalf("expected completed, got %s", result.State)
@@ -247,7 +247,7 @@ func TestCascade_RateLimitBlocksForSubsequentTasks(t *testing.T) {
 
 	// first task triggers rate limit
 	tk1 := &task.Task{ID: "task-1", Repo: "test/repo", Prompt: "first"}
-	r1 := RunWithCascade(context.Background(), tk1, "/tmp", t.TempDir(), runners, []string{"codex", "zai"}, 5*time.Minute, bl, nil, nil)
+	r1 := RunWithCascade(context.Background(), tk1, "/tmp", t.TempDir(), runners, []string{"codex", "zai"}, 5*time.Minute, 0, bl, nil, nil)
 	if r1.State != task.StateCompleted {
 		t.Fatalf("task-1: expected completed, got %s", r1.State)
 	}
@@ -257,7 +257,7 @@ func TestCascade_RateLimitBlocksForSubsequentTasks(t *testing.T) {
 
 	// second task should skip codex entirely
 	tk2 := &task.Task{ID: "task-2", Repo: "test/repo", Prompt: "second"}
-	r2 := RunWithCascade(context.Background(), tk2, "/tmp", t.TempDir(), runners, []string{"codex", "zai"}, 5*time.Minute, bl, nil, nil)
+	r2 := RunWithCascade(context.Background(), tk2, "/tmp", t.TempDir(), runners, []string{"codex", "zai"}, 5*time.Minute, 0, bl, nil, nil)
 	if r2.State != task.StateCompleted {
 		t.Fatalf("task-2: expected completed, got %s", r2.State)
 	}
@@ -1098,5 +1098,304 @@ func TestCascadeSuggestions_AllFilters(t *testing.T) {
 	suggestions := cascadeSuggestions(fl)
 	if len(suggestions) != 5 {
 		t.Fatalf("expected 5 suggestions, got %d: %v", len(suggestions), suggestions)
+	}
+}
+
+// --- Retry tests ---
+
+func TestCascade_RetryOnConnectivity(t *testing.T) {
+	calls := 0
+	runners := map[string]runner.Runner{
+		"codex": &mockRunner{name: "codex", result: func(tk *task.Task) *task.TaskResult {
+			calls++
+			if calls == 1 {
+				return &task.TaskResult{
+					TaskID:            tk.ID,
+					State:             task.StateFailed,
+					Error:             "request failed",
+					ConnectivityError: "request failed",
+				}
+			}
+			return completedResult(tk.ID)
+		}},
+	}
+
+	// override backoffs for fast tests
+	saved := retryBackoffs
+	retryBackoffs = []time.Duration{10 * time.Millisecond, 20 * time.Millisecond}
+	defer func() { retryBackoffs = saved }()
+
+	tk := &task.Task{ID: "retry-1", Repo: "test/repo", Prompt: "do stuff"}
+	bl := runner.NewRunnerBlacklist()
+	result := RunWithCascade(context.Background(), tk, "/tmp", t.TempDir(), runners, []string{"codex"}, 5*time.Minute, 2, bl, nil, nil)
+
+	if result.State != task.StateCompleted {
+		t.Fatalf("expected completed after retry, got %s: %s", result.State, result.Error)
+	}
+	if calls != 2 {
+		t.Fatalf("expected 2 calls (1 fail + 1 success), got %d", calls)
+	}
+	if len(result.Attempts) != 2 {
+		t.Fatalf("expected 2 attempts, got %d", len(result.Attempts))
+	}
+	if result.Attempts[0].Retry != 0 {
+		t.Fatalf("first attempt should have Retry=0, got %d", result.Attempts[0].Retry)
+	}
+	if result.Attempts[1].Retry != 1 {
+		t.Fatalf("second attempt should have Retry=1, got %d", result.Attempts[1].Retry)
+	}
+}
+
+func TestCascade_RetryOnIdleTimeout(t *testing.T) {
+	calls := 0
+	runners := map[string]runner.Runner{
+		"codex": &mockRunner{name: "codex", result: func(tk *task.Task) *task.TaskResult {
+			calls++
+			if calls == 1 {
+				return &task.TaskResult{
+					TaskID: tk.ID,
+					State:  task.StateFailed,
+					Error:  "idle timeout: no output for 5m0s",
+				}
+			}
+			return completedResult(tk.ID)
+		}},
+	}
+
+	saved := retryBackoffs
+	retryBackoffs = []time.Duration{10 * time.Millisecond}
+	defer func() { retryBackoffs = saved }()
+
+	tk := &task.Task{ID: "retry-2", Repo: "test/repo", Prompt: "do stuff"}
+	bl := runner.NewRunnerBlacklist()
+	result := RunWithCascade(context.Background(), tk, "/tmp", t.TempDir(), runners, []string{"codex"}, 5*time.Minute, 2, bl, nil, nil)
+
+	if result.State != task.StateCompleted {
+		t.Fatalf("expected completed after retry, got %s", result.State)
+	}
+	if calls != 2 {
+		t.Fatalf("expected 2 calls, got %d", calls)
+	}
+}
+
+func TestCascade_NoRetryOnRealFailure(t *testing.T) {
+	calls := 0
+	runners := map[string]runner.Runner{
+		"codex": &mockRunner{name: "codex", result: func(tk *task.Task) *task.TaskResult {
+			calls++
+			return failedMockResult(tk.ID, "turn.failed: real error")
+		}},
+		"zai": &mockRunner{name: "zai", result: func(tk *task.Task) *task.TaskResult {
+			return completedResult(tk.ID)
+		}},
+	}
+
+	saved := retryBackoffs
+	retryBackoffs = []time.Duration{10 * time.Millisecond}
+	defer func() { retryBackoffs = saved }()
+
+	tk := &task.Task{ID: "retry-3", Repo: "test/repo", Prompt: "do stuff"}
+	bl := runner.NewRunnerBlacklist()
+	result := RunWithCascade(context.Background(), tk, "/tmp", t.TempDir(), runners, []string{"codex", "zai"}, 5*time.Minute, 2, bl, nil, nil)
+
+	// should NOT retry codex — real failure, falls to zai
+	if calls != 1 {
+		t.Fatalf("codex should be called exactly once (no retry), got %d", calls)
+	}
+	if result.State != task.StateCompleted {
+		t.Fatalf("expected completed via fallback, got %s", result.State)
+	}
+	if result.RunnerUsed != "zai" {
+		t.Fatalf("expected runner_used=zai, got %s", result.RunnerUsed)
+	}
+}
+
+func TestCascade_MaxRetriesExhausted(t *testing.T) {
+	calls := 0
+	runners := map[string]runner.Runner{
+		"codex": &mockRunner{name: "codex", result: func(tk *task.Task) *task.TaskResult {
+			calls++
+			return &task.TaskResult{
+				TaskID:            tk.ID,
+				State:             task.StateFailed,
+				Error:             "DNS resolution failed",
+				ConnectivityError: "DNS resolution failed",
+			}
+		}},
+		"zai": &mockRunner{name: "zai", result: func(tk *task.Task) *task.TaskResult {
+			return completedResult(tk.ID)
+		}},
+	}
+
+	saved := retryBackoffs
+	retryBackoffs = []time.Duration{10 * time.Millisecond, 20 * time.Millisecond}
+	defer func() { retryBackoffs = saved }()
+
+	tk := &task.Task{ID: "retry-4", Repo: "test/repo", Prompt: "do stuff"}
+	bl := runner.NewRunnerBlacklist()
+	result := RunWithCascade(context.Background(), tk, "/tmp", t.TempDir(), runners, []string{"codex", "zai"}, 5*time.Minute, 2, bl, nil, nil)
+
+	// codex called 3 times (initial + 2 retries), then falls to zai
+	if calls != 3 {
+		t.Fatalf("expected 3 codex calls (1 + 2 retries), got %d", calls)
+	}
+	if result.State != task.StateCompleted {
+		t.Fatalf("expected completed via zai, got %s", result.State)
+	}
+	if result.RunnerUsed != "zai" {
+		t.Fatalf("expected runner_used=zai, got %s", result.RunnerUsed)
+	}
+	// 3 codex attempts + 1 zai attempt = 4
+	if len(result.Attempts) != 4 {
+		t.Fatalf("expected 4 attempts, got %d", len(result.Attempts))
+	}
+}
+
+func TestCascade_NoRetryWhenDisabled(t *testing.T) {
+	calls := 0
+	runners := map[string]runner.Runner{
+		"codex": &mockRunner{name: "codex", result: func(tk *task.Task) *task.TaskResult {
+			calls++
+			return &task.TaskResult{
+				TaskID:            tk.ID,
+				State:             task.StateFailed,
+				Error:             "request failed",
+				ConnectivityError: "request failed",
+			}
+		}},
+	}
+
+	tk := &task.Task{ID: "retry-5", Repo: "test/repo", Prompt: "do stuff"}
+	bl := runner.NewRunnerBlacklist()
+	// maxRetries=0 → no retries
+	result := RunWithCascade(context.Background(), tk, "/tmp", t.TempDir(), runners, []string{"codex"}, 5*time.Minute, 0, bl, nil, nil)
+
+	if calls != 1 {
+		t.Fatalf("with maxRetries=0, codex should be called once, got %d", calls)
+	}
+	if result.State != task.StateFailed {
+		t.Fatalf("expected failed, got %s", result.State)
+	}
+}
+
+func TestCascade_RetryAttemptsTracked(t *testing.T) {
+	calls := 0
+	runners := map[string]runner.Runner{
+		"codex": &mockRunner{name: "codex", result: func(tk *task.Task) *task.TaskResult {
+			calls++
+			if calls <= 2 {
+				return &task.TaskResult{
+					TaskID:            tk.ID,
+					State:             task.StateFailed,
+					Error:             "connection refused",
+					ConnectivityError: "connection refused",
+				}
+			}
+			return completedResult(tk.ID)
+		}},
+	}
+
+	saved := retryBackoffs
+	retryBackoffs = []time.Duration{10 * time.Millisecond, 20 * time.Millisecond}
+	defer func() { retryBackoffs = saved }()
+
+	tk := &task.Task{ID: "retry-6", Repo: "test/repo", Prompt: "do stuff"}
+	bl := runner.NewRunnerBlacklist()
+	result := RunWithCascade(context.Background(), tk, "/tmp", t.TempDir(), runners, []string{"codex"}, 5*time.Minute, 2, bl, nil, nil)
+
+	if result.State != task.StateCompleted {
+		t.Fatalf("expected completed, got %s", result.State)
+	}
+	if len(result.Attempts) != 3 {
+		t.Fatalf("expected 3 attempts, got %d", len(result.Attempts))
+	}
+	// verify retry field progression
+	for i, a := range result.Attempts {
+		if a.Retry != i {
+			t.Errorf("attempt %d: expected Retry=%d, got %d", i, i, a.Retry)
+		}
+		if a.Runner != "codex" {
+			t.Errorf("attempt %d: expected runner=codex, got %s", i, a.Runner)
+		}
+	}
+	// first two should be failed, third completed
+	if result.Attempts[0].State != task.StateFailed {
+		t.Errorf("attempt 0 should be failed, got %s", result.Attempts[0].State)
+	}
+	if result.Attempts[1].State != task.StateFailed {
+		t.Errorf("attempt 1 should be failed, got %s", result.Attempts[1].State)
+	}
+	if result.Attempts[2].State != task.StateCompleted {
+		t.Errorf("attempt 2 should be completed, got %s", result.Attempts[2].State)
+	}
+}
+
+func TestIsTransientFailure(t *testing.T) {
+	tests := []struct {
+		name   string
+		result *task.TaskResult
+		want   bool
+	}{
+		{
+			name:   "connectivity error",
+			result: &task.TaskResult{State: task.StateFailed, ConnectivityError: "DNS resolution failed"},
+			want:   true,
+		},
+		{
+			name:   "request failed",
+			result: &task.TaskResult{State: task.StateFailed, ConnectivityError: "request failed"},
+			want:   true,
+		},
+		{
+			name:   "TLS cert expired is permanent",
+			result: &task.TaskResult{State: task.StateFailed, ConnectivityError: "TLS certificate expired"},
+			want:   false,
+		},
+		{
+			name:   "idle timeout",
+			result: &task.TaskResult{State: task.StateFailed, Error: "idle timeout: no output for 5m0s"},
+			want:   true,
+		},
+		{
+			name:   "real failure",
+			result: &task.TaskResult{State: task.StateFailed, Error: "turn.failed"},
+			want:   false,
+		},
+		{
+			name:   "completed is not transient",
+			result: &task.TaskResult{State: task.StateCompleted},
+			want:   false,
+		},
+		{
+			name:   "rate limited is not transient for retry",
+			result: &task.TaskResult{State: task.StateRateLimited},
+			want:   false,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := isTransientFailure(tt.result); got != tt.want {
+				t.Errorf("isTransientFailure() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestRetryBackoff(t *testing.T) {
+	saved := retryBackoffs
+	retryBackoffs = []time.Duration{30 * time.Second, 60 * time.Second}
+	defer func() { retryBackoffs = saved }()
+
+	if got := retryBackoff(0); got != 0 {
+		t.Errorf("retry 0 should return 0, got %v", got)
+	}
+	if got := retryBackoff(1); got != 30*time.Second {
+		t.Errorf("retry 1 should return 30s, got %v", got)
+	}
+	if got := retryBackoff(2); got != 60*time.Second {
+		t.Errorf("retry 2 should return 60s, got %v", got)
+	}
+	if got := retryBackoff(3); got != 60*time.Second {
+		t.Errorf("retry 3 should clamp to last backoff (60s), got %v", got)
 	}
 }
