@@ -42,7 +42,15 @@ Regular API keys will show "admin API key required" but are non-fatal.`,
 			}
 
 			if len(results) == 0 {
-				fmt.Println("No provider API keys found. Set OPENAI_API_KEY, ANTHROPIC_API_KEY, or DEEPSEEK_API_KEY.")
+				fmt.Println("No provider API keys found.")
+				fmt.Println("")
+				fmt.Println("Set environment variables for quota checking:")
+				fmt.Println("  export OPENAI_API_KEY=sk-...       # OpenAI admin key for usage data")
+				fmt.Println("  export ANTHROPIC_API_KEY=sk-ant-... # Anthropic admin key for usage data")
+				fmt.Println("  export DEEPSEEK_API_KEY=sk-...      # DeepSeek key for balance check")
+				fmt.Println("")
+				fmt.Println("Note: codex/claude CLI OAuth auth cannot be used for quota checks.")
+				fmt.Println("Usage/quota APIs require separate admin API keys from provider dashboards.")
 				return nil
 			}
 

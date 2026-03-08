@@ -305,8 +305,7 @@ func CheckAllQuotas(ctx context.Context, getenv func(string) string) []*QuotaInf
 	var results []*QuotaInfo
 
 	for _, p := range providers {
-		envVar := ProviderEnvVar(p)
-		apiKey := getenv(envVar)
+		apiKey := ResolveAPIKey(p, getenv)
 		if apiKey == "" {
 			continue
 		}
