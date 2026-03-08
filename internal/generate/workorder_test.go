@@ -1,6 +1,7 @@
 package generate
 
 import (
+	"fmt"
 	"testing"
 )
 
@@ -290,12 +291,12 @@ func TestParseWorkOrders_DependencyDetection(t *testing.T) {
 	tests := []struct {
 		name  string
 		text  string
-		wantD string
+		wantD []string
 	}{
-		{"depends on", "This depends on WO-01 being done first.", "01"},
-		{"requires", "Requires WO-CW06 to be complete.", "CW06"},
-		{"builds on", "Builds on WO-V01 foundation.", "V01"},
-		{"after", "Run after WO-S01 completes.", "S01"},
+		{"depends on", "This depends on WO-01 being done first.", []string{"01"}},
+		{"requires", "Requires WO-CW06 to be complete.", []string{"CW06"}},
+		{"builds on", "Builds on WO-V01 foundation.", []string{"V01"}},
+		{"after", "Run after WO-S01 completes.", []string{"S01"}},
 	}
 
 	for _, tt := range tests {
@@ -305,10 +306,91 @@ func TestParseWorkOrders_DependencyDetection(t *testing.T) {
 			if len(wos) != 1 {
 				t.Fatalf("expected 1 WO, got %d", len(wos))
 			}
-			if wos[0].DependsOn != tt.wantD {
-				t.Errorf("DependsOn = %q, want %q", wos[0].DependsOn, tt.wantD)
+			if fmt.Sprintf("%v", wos[0].DependsOn) != fmt.Sprintf("%v", tt.wantD) {
+				t.Errorf("DependsOn = %v, want %v", wos[0].DependsOn, tt.wantD)
 			}
 		})
+	}
+}
+
+func TestParseWorkOrders_DependsOnField(t *testing.T) {
+	input := `## WO-05: Feature with deps
+
+**Status:** ` + "`[ ]`" + ` planned
+**Priority:** high
+**Depends on:** WO-01 (classifier), WO-03 (pre-flight)
+
+### Summary
+
+This task has multiple dependencies.
+`
+	wos := ParseWorkOrders(input)
+	if len(wos) != 1 {
+		t.Fatalf("expected 1 WO, got %d", len(wos))
+	}
+	want := []string{"01", "03"}
+	if fmt.Sprintf("%v", wos[0].DependsOn) != fmt.Sprintf("%v", want) {
+		t.Errorf("DependsOn = %v, want %v", wos[0].DependsOn, want)
+	}
+}
+
+func TestParseWorkOrders_DependsOnFieldSingle(t *testing.T) {
+	input := `## WO-10: Single field dep
+
+**Status:** ` + "`[ ]`" + ` planned
+**Depends on:** WO-48 (token tracking in reports)
+
+### Summary
+
+Single dependency in field format.
+`
+	wos := ParseWorkOrders(input)
+	if len(wos) != 1 {
+		t.Fatalf("expected 1 WO, got %d", len(wos))
+	}
+	want := []string{"48"}
+	if fmt.Sprintf("%v", wos[0].DependsOn) != fmt.Sprintf("%v", want) {
+		t.Errorf("DependsOn = %v, want %v", wos[0].DependsOn, want)
+	}
+}
+
+func TestParseWorkOrders_DependsOnFieldAlphanumeric(t *testing.T) {
+	input := `## WO-20: Alpha deps
+
+**Status:** ` + "`[ ]`" + ` planned
+**Depends on:** WO-CW01, WO-V03
+
+### Summary
+
+Dependencies with alphanumeric IDs.
+`
+	wos := ParseWorkOrders(input)
+	if len(wos) != 1 {
+		t.Fatalf("expected 1 WO, got %d", len(wos))
+	}
+	want := []string{"CW01", "V03"}
+	if fmt.Sprintf("%v", wos[0].DependsOn) != fmt.Sprintf("%v", want) {
+		t.Errorf("DependsOn = %v, want %v", wos[0].DependsOn, want)
+	}
+}
+
+func TestParseWORefs(t *testing.T) {
+	tests := []struct {
+		input string
+		want  []string
+	}{
+		{"WO-01 (classifier), WO-03 (pre-flight)", []string{"01", "03"}},
+		{"WO-51 (rename), WO-54 (data)", []string{"51", "54"}},
+		{"WO-48 (token tracking)", []string{"48"}},
+		{"WO-CW01, WO-V03", []string{"CW01", "V03"}},
+		{"no references here", nil},
+		{"", nil},
+	}
+	for _, tt := range tests {
+		got := parseWORefs(tt.input)
+		if fmt.Sprintf("%v", got) != fmt.Sprintf("%v", tt.want) {
+			t.Errorf("parseWORefs(%q) = %v, want %v", tt.input, got, tt.want)
+		}
 	}
 }
 
@@ -419,8 +501,9 @@ func TestParseWorkOrders_DependencyOnDoneWO(t *testing.T) {
 	if len(wos) != 1 {
 		t.Fatalf("expected 1 WO, got %d", len(wos))
 	}
-	if wos[0].DependsOn != "26" {
-		t.Errorf("DependsOn = %q, want %q", wos[0].DependsOn, "26")
+	want := []string{"26"}
+	if fmt.Sprintf("%v", wos[0].DependsOn) != fmt.Sprintf("%v", want) {
+		t.Errorf("DependsOn = %v, want %v", wos[0].DependsOn, want)
 	}
 }
 

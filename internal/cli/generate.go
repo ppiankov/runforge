@@ -134,11 +134,11 @@ func generateTasks(reposDir, output, owner, filterRepo, defaultRunner string, cf
 				Score:      score,
 			}
 
-			// Only set depends_on if the target task is also included (not done).
-			if wo.DependsOn != "" {
-				depID := generate.TaskID(repoName, wo.DependsOn)
+			// Only set depends_on for target tasks that are also included (not done).
+			for _, dep := range wo.DependsOn {
+				depID := generate.TaskID(repoName, dep)
 				if _, ok := includedIDs[depID]; ok {
-					t.DependsOn = []string{depID}
+					t.DependsOn = append(t.DependsOn, depID)
 				} else {
 					slog.Debug("dropping satisfied dependency", "task", t.ID, "dep", depID)
 				}

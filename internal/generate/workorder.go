@@ -23,7 +23,7 @@ type WorkOrder struct {
 	Priority   int      // 1=high, 2=medium, 3=low
 	Summary    string   // Goal or first Summary paragraph
 	Acceptance []string // acceptance criteria bullet points
-	DependsOn  string   // raw WO suffix of dependency (e.g., "01")
+	DependsOn  []string // raw WO suffixes of dependencies (e.g., ["01", "03"])
 	Runner     string   // "codex" or "claude" if detected in text
 }
 
@@ -40,6 +40,12 @@ var (
 
 	// Matches: **Goal:** text
 	reGoal = regexp.MustCompile(`^\*\*Goal:\*\*\s*(.+)$`)
+
+	// Matches the **Depends on:** field format with comma-separated WO refs.
+	reDependsField = regexp.MustCompile(`^\*\*Depends\s+on:\*\*\s+(.+)$`)
+
+	// Extracts individual WO-XX references from text (used after field match or in prose).
+	reWORef = regexp.MustCompile(`WO-([A-Za-z]*\d[A-Za-z0-9.-]*)`)
 
 	// Matches dependency references in prose. Requires at least one digit to avoid placeholders like "WO-X".
 	reDepends = regexp.MustCompile(`(?i)(?:depends\s+on|requires|builds\s+on|after)\s+WO-([A-Za-z]*\d[A-Za-z0-9.-]*)`)
@@ -132,9 +138,13 @@ func ParseWorkOrders(content string) []WorkOrder {
 		}
 
 		// Inside a WO — scan every line for dependencies and runner overrides.
-		if current.DependsOn == "" {
-			if m := reDepends.FindStringSubmatch(line); m != nil {
-				current.DependsOn = m[1]
+		if len(current.DependsOn) == 0 {
+			if m := reDependsField.FindStringSubmatch(line); m != nil {
+				// Field format: **Depends on:** WO-01 (desc), WO-03 (desc)
+				current.DependsOn = parseWORefs(m[1])
+			} else if m := reDepends.FindStringSubmatch(line); m != nil {
+				// Prose fallback: "depends on WO-01"
+				current.DependsOn = []string{m[1]}
 			}
 		}
 		if strings.Contains(strings.ToLower(line), "runner: claude") && current.Runner == "" {
@@ -242,6 +252,20 @@ func BuildPrompt(wo WorkOrder) string {
 	}
 	b.WriteString(fmt.Sprintf(" Read docs/work-orders.md WO-%s for full details.", wo.RawID))
 	return b.String()
+}
+
+// parseWORefs extracts all WO-XX references from a comma-separated field value.
+// Input: "WO-01 (classifier), WO-03 (pre-flight)" → ["01", "03"]
+func parseWORefs(text string) []string {
+	matches := reWORef.FindAllStringSubmatch(text, -1)
+	if len(matches) == 0 {
+		return nil
+	}
+	refs := make([]string, 0, len(matches))
+	for _, m := range matches {
+		refs = append(refs, m[1])
+	}
+	return refs
 }
 
 func mapPriority(s string) int {
