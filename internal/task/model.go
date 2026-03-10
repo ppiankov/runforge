@@ -103,6 +103,7 @@ type RunnerProfileConfig struct {
 	DataCollection bool              `json:"data_collection,omitempty"` // true = prompts may be used for model training
 	Free           bool              `json:"free,omitempty"`            // true = free-tier model, excluded from cascade by default
 	Tier           int               `json:"tier,omitempty"`            // 1=complex-capable, 2=medium, 3=simple-only; 0=use default
+	FallbackOnly   bool              `json:"fallback_only,omitempty"`   // true = never assign as primary via striping
 }
 
 // TaskFile is the top-level structure of the tasks JSON file.

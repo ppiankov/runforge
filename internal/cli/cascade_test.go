@@ -299,22 +299,34 @@ func TestStripeRunners_RoundRobin(t *testing.T) {
 		tasks[i] = task.Task{ID: fmt.Sprintf("t%d", i)}
 	}
 
-	stripeRunners(tasks, "codex", []string{"deepseek", "minimax", "zai", "claude"})
+	profiles := map[string]*task.RunnerProfileConfig{
+		"codex":    {Type: "codex"},
+		"deepseek": {Type: "codex"},
+		"minimax":  {Type: "codex"},
+		"zai":      {Type: "codex"},
+		"claude":   {Type: "claude", FallbackOnly: true},
+	}
 
-	// 5 providers: codex, deepseek, minimax, zai, claude
-	expectedPrimary := []string{"codex", "deepseek", "minimax", "zai", "claude", "codex", "deepseek", "minimax", "zai", "claude"}
+	stripeRunners(tasks, "codex", []string{"deepseek", "minimax", "zai", "claude"}, profiles)
+
+	// claude is fallback_only: primaries are codex, deepseek, minimax, zai (4 runners)
+	expectedPrimary := []string{"codex", "deepseek", "minimax", "zai", "codex", "deepseek", "minimax", "zai", "codex", "deepseek"}
 	for i, tk := range tasks {
 		if tk.Runner != expectedPrimary[i] {
 			t.Fatalf("task %d: expected runner=%s, got %s", i, expectedPrimary[i], tk.Runner)
 		}
-		if len(tk.Fallbacks) != 4 {
-			t.Fatalf("task %d: expected 4 fallbacks, got %d", i, len(tk.Fallbacks))
-		}
-		// primary must not appear in fallbacks
+		// claude must be in fallbacks
+		hasClaude := false
 		for _, fb := range tk.Fallbacks {
+			if fb == "claude" {
+				hasClaude = true
+			}
 			if fb == tk.Runner {
 				t.Fatalf("task %d: primary %s found in fallbacks", i, tk.Runner)
 			}
+		}
+		if !hasClaude {
+			t.Fatalf("task %d: fallback_only runner 'claude' missing from fallbacks", i)
 		}
 	}
 }
@@ -326,7 +338,7 @@ func TestStripeRunners_RespectsExplicitRunner(t *testing.T) {
 		{ID: "t2"},
 	}
 
-	stripeRunners(tasks, "codex", []string{"deepseek", "zai"})
+	stripeRunners(tasks, "codex", []string{"deepseek", "zai"}, nil)
 
 	if tasks[0].Runner != "codex" {
 		t.Fatalf("t0: expected codex, got %s", tasks[0].Runner)
@@ -344,7 +356,7 @@ func TestStripeRunners_RespectsExplicitRunner(t *testing.T) {
 
 func TestStripeRunners_NoFallbacks(t *testing.T) {
 	tasks := []task.Task{{ID: "t0"}, {ID: "t1"}}
-	stripeRunners(tasks, "codex", nil)
+	stripeRunners(tasks, "codex", nil, nil)
 
 	// no-op when no fallbacks configured
 	if tasks[0].Runner != "" {

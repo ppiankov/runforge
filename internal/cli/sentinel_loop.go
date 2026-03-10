@@ -162,7 +162,7 @@ func buildSentinelRunFnWithProgress(reposDir string, workers int, runnerName str
 		mergeSettings(tf, settings)
 
 		// stripe runners
-		stripeRunners(tasks, tf.DefaultRunner, tf.DefaultFallbacks)
+		stripeRunners(tasks, tf.DefaultRunner, tf.DefaultFallbacks, tf.Runners)
 
 		// build graph
 		graph, err := task.BuildGraph(tasks)

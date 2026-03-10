@@ -200,7 +200,7 @@ func runTasks(tasksFile string, workers int, verify bool, reposDir, filter strin
 	if defaultRunner == "" {
 		defaultRunner = "codex"
 	}
-	stripeRunners(tasks, defaultRunner, tf.DefaultFallbacks)
+	stripeRunners(tasks, defaultRunner, tf.DefaultFallbacks, tf.Runners)
 
 	// resolve repos dir
 	reposDir, err = filepath.Abs(reposDir)
@@ -970,6 +970,7 @@ func mergeSettings(tf *task.TaskFile, cfg *config.Settings) {
 					DataCollection: rp.DataCollection,
 					Free:           rp.Free,
 					Tier:           rp.Tier,
+					FallbackOnly:   rp.FallbackOnly,
 				}
 			}
 		}
@@ -992,22 +993,40 @@ func resolveMergeBack(tf *task.TaskFile, cfg *config.Settings) bool {
 // providers for parallel utilization. Tasks without an explicit runner
 // get round-robin primary assignment; each task's fallbacks contain all
 // other providers. Tasks with an explicit Runner field are not modified.
-func stripeRunners(tasks []task.Task, defaultRunner string, fallbacks []string) {
+func stripeRunners(tasks []task.Task, defaultRunner string, fallbacks []string, profiles map[string]*task.RunnerProfileConfig) {
 	if len(fallbacks) == 0 {
 		return
 	}
+
+	// Build primary-eligible list: default runner + fallbacks that aren't fallback-only.
+	var primaries []string
+	primaries = append(primaries, defaultRunner)
+	for _, fb := range fallbacks {
+		if p := profiles[fb]; p != nil && p.FallbackOnly {
+			continue
+		}
+		if fb != defaultRunner {
+			primaries = append(primaries, fb)
+		}
+	}
+
+	// Full runner list for fallback cascade (all runners, including fallback-only).
 	all := []string{defaultRunner}
-	all = append(all, fallbacks...)
+	for _, fb := range fallbacks {
+		if fb != defaultRunner {
+			all = append(all, fb)
+		}
+	}
 
 	for i := range tasks {
 		if tasks[i].Runner != "" {
 			continue
 		}
-		idx := i % len(all)
-		tasks[i].Runner = all[idx]
+		idx := i % len(primaries)
+		tasks[i].Runner = primaries[idx]
 		var fb []string
-		for j, r := range all {
-			if j != idx {
+		for _, r := range all {
+			if r != primaries[idx] {
 				fb = append(fb, r)
 			}
 		}

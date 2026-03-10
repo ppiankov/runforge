@@ -159,7 +159,8 @@ type initConfig struct {
 }
 
 type initRunnerProfile struct {
-	Type string `yaml:"type"`
+	Type         string `yaml:"type"`
+	FallbackOnly bool   `yaml:"fallback_only,omitempty"`
 }
 
 func buildInitConfig(runners []string, reposDir string, workers int) *initConfig {
@@ -179,7 +180,12 @@ func buildInitConfig(runners []string, reposDir string, workers int) *initConfig
 
 	cfg.DefaultRunner = runners[0]
 	for _, r := range runners {
-		cfg.Runners[r] = &initRunnerProfile{Type: r}
+		profile := &initRunnerProfile{Type: r}
+		// claude code runs on Opus — expensive, use as fallback only
+		if r == "claude" {
+			profile.FallbackOnly = true
+		}
+		cfg.Runners[r] = profile
 	}
 	if len(runners) > 1 {
 		cfg.DefaultFallbacks = runners[1:]

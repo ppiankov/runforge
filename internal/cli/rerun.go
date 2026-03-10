@@ -152,7 +152,7 @@ func rerunTasks(runDir string, workers int, reposDir string, maxRuntime, idleTim
 	if rerunDefault == "" {
 		rerunDefault = "codex"
 	}
-	stripeRunners(tasks, rerunDefault, tf.DefaultFallbacks)
+	stripeRunners(tasks, rerunDefault, tf.DefaultFallbacks, tf.Runners)
 
 	// check for tasks in report but missing from task file
 	found := make(map[string]bool)

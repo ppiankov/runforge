@@ -68,6 +68,7 @@ type RunnerProfile struct {
 	DataCollection bool              `yaml:"data_collection,omitempty"` // true = provider may use data for training
 	Free           bool              `yaml:"free,omitempty"`            // true = free-tier model, excluded from cascade by default
 	Tier           int               `yaml:"tier,omitempty"`            // 1=complex-capable, 2=medium, 3=simple-only; 0=use default
+	FallbackOnly   bool              `yaml:"fallback_only,omitempty"`   // true = never assign as primary via striping
 }
 
 // ProxyConfig controls the built-in Responses API → Chat Completions proxy.
