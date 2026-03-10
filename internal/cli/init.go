@@ -65,7 +65,10 @@ func newInitCmd() *cobra.Command {
 var runnerBinaries = []string{"codex", "claude", "gemini", "opencode", "cline", "qwen"}
 
 // credentialVars is the ordered list of credential env vars to check.
-var credentialVars = []string{"OPENAI_API_KEY", "ANTHROPIC_API_KEY", "GEMINI_API_KEY"}
+var credentialVars = []string{
+	"OPENAI_API_KEY", "ANTHROPIC_API_KEY", "GEMINI_API_KEY",
+	"DEEPSEEK_API_KEY", "GROQ_API_KEY", "MINIMAX_API_KEY", "ZAI_API_KEY",
+}
 
 func runInit(env *initEnv, stderr io.Writer, stdout io.Writer, cfgPath, reposDir string, force, dryRun bool) error {
 	// Check if config already exists (unless --force or --dry-run).
