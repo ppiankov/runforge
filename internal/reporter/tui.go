@@ -1141,9 +1141,6 @@ func (m TUIModel) renderAgentContent(panelHeight int) string {
 		b.WriteString(headerStyle.Render("QUOTAS"))
 		b.WriteString("\n")
 		for _, q := range quotas {
-			if q.Error != "" && q.UsedTokens == 0 && q.Balance == "" {
-				continue
-			}
 			var info string
 			if q.Balance != "" {
 				avail := doneStyle.Render("available")
@@ -1155,6 +1152,10 @@ func (m TUIModel) renderAgentContent(panelHeight int) string {
 				info = fmt.Sprintf("%s/7d  %s/day",
 					formatCompactTokens(q.UsedTokens),
 					formatCompactTokens(q.BurnRate))
+			} else if q.Error != "" {
+				info = dimStyle.Render(q.Error)
+			} else {
+				info = doneStyle.Render("connected")
 			}
 			b.WriteString(fmt.Sprintf("  %-14s %s\n", q.Provider, info))
 		}
