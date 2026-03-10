@@ -292,10 +292,13 @@ func runTasks(tasksFile string, workers int, verify bool, reposDir, filter strin
 	}
 
 	// agent readiness check (ANCC-based, optional)
-	readinessWarnings := checkRunReadiness(tf)
+	readinessWarnings, agentSummary := checkRunReadiness(tf)
 	if strictReadiness && len(readinessWarnings) > 0 {
 		return fmt.Errorf("agent readiness check failed (--strict-readiness): %s",
 			strings.Join(readinessWarnings, "; "))
+	}
+	for _, a := range agentSummary {
+		slog.Info("agent readiness", "agent", a.Name, "skills", a.Skills, "hooks", a.Hooks, "tokens", formatTokenCount(a.Tokens))
 	}
 
 	// pre-scan repos for secrets (used by dry-run display and execution filtering)
@@ -1336,26 +1339,35 @@ func allScriptTasks(tasks []task.Task) bool {
 	return true
 }
 
+// agentReadiness holds per-agent ANCC data for runners used in a run.
+type agentReadiness struct {
+	Name   string
+	Skills int
+	Hooks  int
+	Tokens int
+}
+
 // checkRunReadiness runs ANCC-based agent readiness checks for runners used in the task file.
-// Returns nil if ANCC is not available (graceful degradation).
-func checkRunReadiness(tf *task.TaskFile) []string {
+// Returns warnings and per-agent summary. Both are nil if ANCC is not available.
+func checkRunReadiness(tf *task.TaskFile) ([]string, []agentReadiness) {
 	_, err := exec.LookPath("ancc")
 	if err != nil {
-		return nil
+		return nil, nil
 	}
 
 	out, err := exec.Command("ancc", "skills", "--format", "json").CombinedOutput()
 	if err != nil {
-		return nil
+		return nil, nil
 	}
 
 	var result anccSkillsResult
 	if err := json.Unmarshal(out, &result); err != nil {
-		return nil
+		return nil, nil
 	}
 
 	agentMap := mapANCCAgents(result.Agents)
 	var warnings []string
+	var agents []agentReadiness
 
 	usedRunners := collectUsedRunners(tf)
 	safeRunners := map[string]bool{"claude": true, "cline": true}
@@ -1365,6 +1377,12 @@ func checkRunReadiness(tf *task.TaskFile) []string {
 		if !found {
 			continue
 		}
+		agents = append(agents, agentReadiness{
+			Name:   name,
+			Skills: agent.Skills,
+			Hooks:  agent.Hooks,
+			Tokens: agent.Tokens,
+		})
 		if agent.Skills == 0 {
 			w := fmt.Sprintf("runner %s: 0 skills loaded", name)
 			slog.Warn("agent readiness", "warning", w)
@@ -1377,7 +1395,7 @@ func checkRunReadiness(tf *task.TaskFile) []string {
 		}
 	}
 
-	return warnings
+	return warnings, agents
 }
 
 // hasCascadeConfig returns true if either the task file or settings define
