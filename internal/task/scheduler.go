@@ -3,6 +3,7 @@ package task
 import (
 	"context"
 	"fmt"
+	"path/filepath"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -151,7 +152,12 @@ func (s *Scheduler) execute(ctx context.Context, id string, work chan<- string) 
 	s.mu.Unlock()
 	s.notify(id)
 
-	repoDir := fmt.Sprintf("%s/%s", s.cfg.ReposDir, repoName(task.Repo))
+	var repoDir string
+	if filepath.IsAbs(task.Repo) {
+		repoDir = task.Repo
+	} else {
+		repoDir = fmt.Sprintf("%s/%s", s.cfg.ReposDir, repoName(task.Repo))
+	}
 	outputDir := fmt.Sprintf("%s/%s", s.cfg.RunDir, id)
 
 	result := s.cfg.ExecFn(ctx, task, repoDir, outputDir)

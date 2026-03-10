@@ -1009,7 +1009,7 @@ func preScanRepos(tasks []task.Task, reposDir string) map[string]struct{} {
 	secretRepos := make(map[string]struct{})
 	ctx := context.Background()
 	for _, repo := range repos {
-		repoPath := filepath.Join(reposDir, repo)
+		repoPath := config.RepoPath(repo, reposDir)
 		found, err := runner.PreScan(ctx, repoPath)
 		if err != nil {
 			slog.Warn("pre-scan error", "repo", repo, "error", err)

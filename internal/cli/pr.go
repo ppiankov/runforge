@@ -12,6 +12,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/ppiankov/tokencontrol/internal/config"
 	"github.com/ppiankov/tokencontrol/internal/reporter"
 	"github.com/ppiankov/tokencontrol/internal/task"
 	"github.com/spf13/cobra"
@@ -126,7 +127,7 @@ func runPR(ctx context.Context, env *prEnv, w io.Writer, runDir, reposDir, base 
 			continue
 		}
 
-		repoDir := filepath.Join(reposDir, filepath.Base(meta.Repo))
+		repoDir := config.RepoPath(meta.Repo, reposDir)
 		pr := createPR(ctx, env, w, meta, result, repoDir, base, dryRun, draft)
 		results = append(results, pr)
 	}

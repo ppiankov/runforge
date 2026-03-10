@@ -324,6 +324,9 @@ func ValidateRepos(tf *task.TaskFile, reposDir string) error {
 // RepoPath returns the filesystem path for a repo reference.
 // "ppiankov/kafkaspectre" + "/home/user/repos" → "/home/user/repos/kafkaspectre"
 func RepoPath(repo, reposDir string) string {
+	if filepath.IsAbs(repo) {
+		return repo
+	}
 	name := filepath.Base(repo)
 	return filepath.Join(reposDir, name)
 }
