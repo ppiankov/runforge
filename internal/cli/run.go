@@ -652,8 +652,19 @@ func executeRun(cfg execRunConfig) (*execRunResult, error) {
 
 	var live *reporter.LiveReporter
 	var tuiProgram *tea.Program
+	var logFile *os.File
 	switch displayMode {
 	case "full":
+		// Redirect slog to a file so log lines don't corrupt the alt-screen TUI.
+		logPath := filepath.Join(runDir, "run.log")
+		if f, err := os.OpenFile(logPath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o644); err == nil {
+			logFile = f
+			level := slog.LevelWarn
+			if verbose {
+				level = slog.LevelDebug
+			}
+			slog.SetDefault(slog.New(slog.NewTextHandler(f, &slog.HandlerOptions{Level: level})))
+		}
 		tuiModel := reporter.NewTUIModel(cfg.graph, sched.Results, cancel)
 		tuiProgram = tea.NewProgram(tuiModel, tea.WithAltScreen())
 		go func() {
@@ -675,6 +686,15 @@ func executeRun(cfg execRunConfig) (*execRunResult, error) {
 	if tuiProgram != nil {
 		tuiProgram.Quit()
 		time.Sleep(100 * time.Millisecond)
+	}
+	// Restore slog to stderr after TUI exits so post-run output goes to terminal.
+	if logFile != nil {
+		_ = logFile.Close()
+		level := slog.LevelWarn
+		if verbose {
+			level = slog.LevelDebug
+		}
+		slog.SetDefault(slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: level})))
 	}
 	if live != nil {
 		live.Stop()
