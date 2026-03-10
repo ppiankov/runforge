@@ -26,6 +26,7 @@ import (
 	"github.com/ppiankov/tokencontrol/internal/runner"
 	"github.com/ppiankov/tokencontrol/internal/state"
 	"github.com/ppiankov/tokencontrol/internal/task"
+	"github.com/ppiankov/tokencontrol/internal/telemetry"
 )
 
 func newRunCmd() *cobra.Command {
@@ -811,6 +812,14 @@ func executeRun(cfg execRunConfig) (*execRunResult, error) {
 
 	// mirror run artifacts to docs/tokencontrol/<run-id>/ in each repo
 	mirrorRunDocs(report, cfg.tasks, cfg.reposDir, cfg.settings.EffectiveDocsDir(), runDir, cfg.tasksFiles)
+
+	// record telemetry (best-effort)
+	if telDB, err := telemetry.OpenDB(telemetry.DefaultPath()); err == nil {
+		defer func() { _ = telDB.Close() }()
+		if err := telemetry.Record(telDB, report, cfg.tasks, tf.Runners); err != nil {
+			slog.Warn("telemetry record failed", "error", err)
+		}
+	}
 
 	// auto-graylist runners that produced false positives
 	autoGraylistRunners(results, graylist, tf.Runners, report.RunID)
