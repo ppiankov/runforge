@@ -19,12 +19,13 @@ var spinnerChars = []string{"⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "�
 // Panel focus constants.
 const (
 	panelTasks  = 0
-	panelLogs   = 1
-	panelAgents = 2
+	panelAgents = 1
+	panelLogs   = 2
 
 	maxLogLines       = 1000 // ring buffer cap for log lines
 	minHeightForSplit = 20   // below this, hide log panel
-	taskPanelRatio    = 0.70 // 70% tasks, 30% logs
+	topPanelRatio     = 0.65 // 65% top row, 35% bottom logs
+	taskWidthRatio    = 0.65 // 65% tasks, 35% agents in top row
 )
 
 // AgentPoolInfo holds agent readiness and quota data for the TUI agent panel.
@@ -420,20 +421,20 @@ func (m TUIModel) showBottomPanel() bool {
 	return (m.logPath != "" || m.agentPool != nil) && m.height >= minHeightForSplit
 }
 
-// panelHeights returns (taskPanelHeight, logPanelHeight) including borders.
-// One line is reserved for the help bar below both panels.
+// panelHeights returns (topRowHeight, logPanelHeight) including borders.
+// One line is reserved for the help bar below all panels.
 func (m TUIModel) panelHeights() (int, int) {
 	if !m.showBottomPanel() {
 		return m.height, 0
 	}
 	available := m.height - 1 // reserve 1 for help line
-	taskH := int(float64(available) * taskPanelRatio)
-	logH := available - taskH
+	topH := int(float64(available) * topPanelRatio)
+	logH := available - topH
 	if logH < 5 {
 		logH = 5
-		taskH = available - logH
+		topH = available - logH
 	}
-	return taskH, logH
+	return topH, logH
 }
 
 // visibleTasksInPanel returns how many task lines fit in a bordered panel.
@@ -527,33 +528,37 @@ func (m TUIModel) View() string {
 		return m.viewSinglePanel()
 	}
 
-	taskH, bottomH := m.panelHeights()
+	topH, logH := m.panelHeights()
 
-	// Task panel content inside border
-	taskContent := m.renderTaskContent(taskH)
+	// Top row: tasks (left) + agents (right) side by side
+	taskW := int(float64(m.width) * taskWidthRatio)
+	agentW := m.width - taskW
+
+	taskContent := m.renderTaskContent(topH)
 	taskBorder := panelBorderStyle(m.focusedPanel == panelTasks)
 	taskPanel := taskBorder.
-		Width(m.width - 2).
-		Height(taskH - 2).
+		Width(taskW - 2).
+		Height(topH - 2).
 		Render(taskContent)
 
-	// Bottom panel: logs or agents depending on focusedPanel
-	var bottomContent string
-	var bottomFocused bool
-	if m.focusedPanel == panelAgents {
-		bottomContent = m.renderAgentContent(bottomH)
-		bottomFocused = true
-	} else {
-		bottomContent = m.renderLogContent(bottomH)
-		bottomFocused = m.focusedPanel == panelLogs
-	}
-	bottomBorder := panelBorderStyle(bottomFocused)
-	bottomPanel := bottomBorder.
-		Width(m.width - 2).
-		Height(bottomH - 2).
-		Render(bottomContent)
+	agentContent := m.renderAgentContent(topH)
+	agentBorder := panelBorderStyle(m.focusedPanel == panelAgents)
+	agentPanel := agentBorder.
+		Width(agentW - 2).
+		Height(topH - 2).
+		Render(agentContent)
 
-	combined := lipgloss.JoinVertical(lipgloss.Left, taskPanel, bottomPanel)
+	topRow := lipgloss.JoinHorizontal(lipgloss.Top, taskPanel, agentPanel)
+
+	// Bottom: log panel (full width)
+	logContent := m.renderLogContent(logH)
+	logBorder := panelBorderStyle(m.focusedPanel == panelLogs)
+	logPanel := logBorder.
+		Width(m.width - 2).
+		Height(logH - 2).
+		Render(logContent)
+
+	combined := lipgloss.JoinVertical(lipgloss.Left, topRow, logPanel)
 
 	// Overlay runner picker on top of combined view if active
 	if m.overlay.active {

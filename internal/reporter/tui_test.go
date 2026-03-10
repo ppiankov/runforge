@@ -209,14 +209,14 @@ func TestTabSwitchesFocus(t *testing.T) {
 
 	m2, _ := m.Update(tea.KeyMsg{Type: tea.KeyTab})
 	model := m2.(TUIModel)
-	if model.focusedPanel != panelLogs {
-		t.Error("tab should switch to logs panel")
+	if model.focusedPanel != panelAgents {
+		t.Error("tab should switch to agents panel")
 	}
 
 	m3, _ := model.Update(tea.KeyMsg{Type: tea.KeyTab})
 	model = m3.(TUIModel)
-	if model.focusedPanel != panelAgents {
-		t.Error("tab should switch to agents panel")
+	if model.focusedPanel != panelLogs {
+		t.Error("tab should switch to logs panel")
 	}
 
 	m4, _ := model.Update(tea.KeyMsg{Type: tea.KeyTab})
