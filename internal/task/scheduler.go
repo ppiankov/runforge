@@ -228,7 +228,12 @@ func (s *Scheduler) execute(ctx context.Context, id string, work chan<- string) 
 	if filepath.IsAbs(task.Repo) {
 		repoDir = task.Repo
 	} else {
-		repoDir = fmt.Sprintf("%s/%s", s.cfg.ReposDir, repoName(task.Repo))
+		name := repoName(task.Repo)
+		if filepath.Base(s.cfg.ReposDir) == name {
+			repoDir = s.cfg.ReposDir
+		} else {
+			repoDir = fmt.Sprintf("%s/%s", s.cfg.ReposDir, name)
+		}
 	}
 	outputDir := fmt.Sprintf("%s/%s", s.cfg.RunDir, id)
 

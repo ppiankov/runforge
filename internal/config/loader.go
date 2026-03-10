@@ -322,11 +322,17 @@ func ValidateRepos(tf *task.TaskFile, reposDir string) error {
 }
 
 // RepoPath returns the filesystem path for a repo reference.
-// "ppiankov/kafkaspectre" + "/home/user/repos" → "/home/user/repos/kafkaspectre"
+// Absolute paths are returned as-is.
+// Relative "owner/name" paths resolve to reposDir/name.
+// If reposDir already ends with the repo name, return reposDir directly
+// (handles running from inside the repo directory).
 func RepoPath(repo, reposDir string) string {
 	if filepath.IsAbs(repo) {
 		return repo
 	}
 	name := filepath.Base(repo)
+	if filepath.Base(reposDir) == name {
+		return reposDir
+	}
 	return filepath.Join(reposDir, name)
 }
