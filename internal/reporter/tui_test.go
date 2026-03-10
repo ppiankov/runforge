@@ -5,6 +5,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
 
@@ -79,7 +80,7 @@ func TestFmtRunning_ShowsRunner(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	m := NewTUIModel(g, func() map[string]*task.TaskResult { return nil }, nil, "")
+	m := NewTUIModel(g, func() map[string]*task.TaskResult { return nil }, nil, "", time.Now(), nil)
 	m.width = 120
 	m.height = 40
 
@@ -105,7 +106,7 @@ func TestFmtDone_ShowsTokens(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	m := NewTUIModel(g, func() map[string]*task.TaskResult { return nil }, nil, "")
+	m := NewTUIModel(g, func() map[string]*task.TaskResult { return nil }, nil, "", time.Now(), nil)
 	m.width = 120
 	m.height = 40
 
@@ -127,35 +128,35 @@ func TestFmtDone_ShowsTokens(t *testing.T) {
 	}
 }
 
-func TestShowLogPanel_Hidden_WhenNoPath(t *testing.T) {
+func TestShowBottomPanel_Hidden_WhenNoPath(t *testing.T) {
 	tasks := []task.Task{{ID: "t1", Repo: "org/repo", Priority: 1, Title: "T"}}
 	g, _ := task.BuildGraph(tasks)
-	m := NewTUIModel(g, func() map[string]*task.TaskResult { return nil }, nil, "")
+	m := NewTUIModel(g, func() map[string]*task.TaskResult { return nil }, nil, "", time.Now(), nil)
 	m.width = 120
 	m.height = 40
-	if m.showLogPanel() {
+	if m.showBottomPanel() {
 		t.Error("log panel should be hidden when logPath is empty")
 	}
 }
 
-func TestShowLogPanel_Hidden_WhenTooShort(t *testing.T) {
+func TestShowBottomPanel_Hidden_WhenTooShort(t *testing.T) {
 	tasks := []task.Task{{ID: "t1", Repo: "org/repo", Priority: 1, Title: "T"}}
 	g, _ := task.BuildGraph(tasks)
-	m := NewTUIModel(g, func() map[string]*task.TaskResult { return nil }, nil, "/tmp/run.log")
+	m := NewTUIModel(g, func() map[string]*task.TaskResult { return nil }, nil, "/tmp/run.log", time.Now(), nil)
 	m.width = 120
 	m.height = 15
-	if m.showLogPanel() {
+	if m.showBottomPanel() {
 		t.Error("log panel should be hidden when height < 20")
 	}
 }
 
-func TestShowLogPanel_Visible(t *testing.T) {
+func TestShowBottomPanel_Visible(t *testing.T) {
 	tasks := []task.Task{{ID: "t1", Repo: "org/repo", Priority: 1, Title: "T"}}
 	g, _ := task.BuildGraph(tasks)
-	m := NewTUIModel(g, func() map[string]*task.TaskResult { return nil }, nil, "/tmp/run.log")
+	m := NewTUIModel(g, func() map[string]*task.TaskResult { return nil }, nil, "/tmp/run.log", time.Now(), nil)
 	m.width = 120
 	m.height = 40
-	if !m.showLogPanel() {
+	if !m.showBottomPanel() {
 		t.Error("log panel should be visible when logPath set and height >= 20")
 	}
 }
@@ -163,7 +164,7 @@ func TestShowLogPanel_Visible(t *testing.T) {
 func TestPanelHeights_70_30(t *testing.T) {
 	tasks := []task.Task{{ID: "t1", Repo: "org/repo", Priority: 1, Title: "T"}}
 	g, _ := task.BuildGraph(tasks)
-	m := NewTUIModel(g, func() map[string]*task.TaskResult { return nil }, nil, "/tmp/run.log")
+	m := NewTUIModel(g, func() map[string]*task.TaskResult { return nil }, nil, "/tmp/run.log", time.Now(), nil)
 	m.width = 120
 	m.height = 40
 	taskH, logH := m.panelHeights()
@@ -198,7 +199,7 @@ func TestIsLogError(t *testing.T) {
 func TestTabSwitchesFocus(t *testing.T) {
 	tasks := []task.Task{{ID: "t1", Repo: "org/repo", Priority: 1, Title: "T"}}
 	g, _ := task.BuildGraph(tasks)
-	m := NewTUIModel(g, func() map[string]*task.TaskResult { return nil }, nil, "/tmp/run.log")
+	m := NewTUIModel(g, func() map[string]*task.TaskResult { return nil }, nil, "/tmp/run.log", time.Now(), nil)
 	m.width = 120
 	m.height = 40
 
@@ -214,6 +215,12 @@ func TestTabSwitchesFocus(t *testing.T) {
 
 	m3, _ := model.Update(tea.KeyMsg{Type: tea.KeyTab})
 	model = m3.(TUIModel)
+	if model.focusedPanel != panelAgents {
+		t.Error("tab should switch to agents panel")
+	}
+
+	m4, _ := model.Update(tea.KeyMsg{Type: tea.KeyTab})
+	model = m4.(TUIModel)
 	if model.focusedPanel != panelTasks {
 		t.Error("tab should cycle back to tasks panel")
 	}
@@ -222,7 +229,7 @@ func TestTabSwitchesFocus(t *testing.T) {
 func TestViewSplitRendersLogHeader(t *testing.T) {
 	tasks := []task.Task{{ID: "t1", Repo: "org/repo", Priority: 1, Title: "T"}}
 	g, _ := task.BuildGraph(tasks)
-	m := NewTUIModel(g, func() map[string]*task.TaskResult { return nil }, nil, "/tmp/test-run.log")
+	m := NewTUIModel(g, func() map[string]*task.TaskResult { return nil }, nil, "/tmp/test-run.log", time.Now(), nil)
 	m.width = 120
 	m.height = 40
 
@@ -238,7 +245,7 @@ func TestViewSplitRendersLogHeader(t *testing.T) {
 func TestViewSinglePanel_WhenNoLogPath(t *testing.T) {
 	tasks := []task.Task{{ID: "t1", Repo: "org/repo", Priority: 1, Title: "T"}}
 	g, _ := task.BuildGraph(tasks)
-	m := NewTUIModel(g, func() map[string]*task.TaskResult { return nil }, nil, "")
+	m := NewTUIModel(g, func() map[string]*task.TaskResult { return nil }, nil, "", time.Now(), nil)
 	m.width = 120
 	m.height = 40
 
@@ -260,7 +267,7 @@ func TestReadLogLines(t *testing.T) {
 
 	tasks := []task.Task{{ID: "t1", Repo: "org/repo", Priority: 1, Title: "T"}}
 	g, _ := task.BuildGraph(tasks)
-	m := NewTUIModel(g, func() map[string]*task.TaskResult { return nil }, nil, logPath)
+	m := NewTUIModel(g, func() map[string]*task.TaskResult { return nil }, nil, logPath, time.Now(), nil)
 	m.width = 120
 	m.height = 40
 
@@ -280,5 +287,120 @@ func TestReadLogLines(t *testing.T) {
 	m.readLogLines()
 	if len(m.logLines) != 4 {
 		t.Errorf("expected 4 log lines after append, got %d", len(m.logLines))
+	}
+}
+
+func TestAgentStats(t *testing.T) {
+	tasks := []task.Task{
+		{ID: "t1", Repo: "org/a", Priority: 1, Title: "A"},
+		{ID: "t2", Repo: "org/b", Priority: 2, Title: "B"},
+		{ID: "t3", Repo: "org/c", Priority: 3, Title: "C"},
+	}
+	g, _ := task.BuildGraph(tasks)
+	results := map[string]*task.TaskResult{
+		"t1": {TaskID: "t1", State: task.StateCompleted, RunnerUsed: "codex", TokensUsed: &task.TokenUsage{TotalTokens: 10000}},
+		"t2": {TaskID: "t2", State: task.StateFailed, RunnerUsed: "codex"},
+		"t3": {TaskID: "t3", State: task.StateRunning, RunnerUsed: "claude"},
+	}
+	m := NewTUIModel(g, func() map[string]*task.TaskResult { return results }, nil, "", time.Now(), nil)
+	m.results = results
+
+	stats := m.agentStats()
+	if len(stats) != 2 {
+		t.Fatalf("expected 2 runner stats, got %d", len(stats))
+	}
+
+	claude, ok := stats["claude"]
+	if !ok {
+		t.Fatal("expected stats for claude")
+	}
+	if claude.Running != 1 {
+		t.Errorf("expected claude Running=1, got %d", claude.Running)
+	}
+
+	codex, ok := stats["codex"]
+	if !ok {
+		t.Fatal("expected stats for codex")
+	}
+	if codex.Done != 1 || codex.Failed != 1 {
+		t.Errorf("expected codex Done=1 Failed=1, got Done=%d Failed=%d", codex.Done, codex.Failed)
+	}
+	if codex.Tokens != 10000 {
+		t.Errorf("expected codex Tokens=10000, got %d", codex.Tokens)
+	}
+}
+
+func TestRenderAgentContent_WithAgents(t *testing.T) {
+	tasks := []task.Task{{ID: "t1", Repo: "org/a", Priority: 1, Title: "A"}}
+	g, _ := task.BuildGraph(tasks)
+	pool := &AgentPoolInfo{
+		Agents: []AgentInfo{
+			{Name: "codex", Skills: 3, Hooks: 0, MCP: 1, Tokens: 5000},
+			{Name: "claude", Skills: 5, Hooks: 3, MCP: 2, Tokens: 12000},
+		},
+		GetQuotas: func() []QuotaInfo { return nil },
+	}
+	m := NewTUIModel(g, func() map[string]*task.TaskResult { return nil }, nil, "", time.Now(), pool)
+	m.width = 120
+	m.height = 40
+
+	content := m.renderAgentContent(15)
+	if !strings.Contains(content, "codex") {
+		t.Error("agent panel should show codex")
+	}
+	if !strings.Contains(content, "claude") {
+		t.Error("agent panel should show claude")
+	}
+	if !strings.Contains(content, "3 skills") {
+		t.Error("agent panel should show skill count")
+	}
+}
+
+func TestRenderAgentContent_WithQuotas(t *testing.T) {
+	tasks := []task.Task{{ID: "t1", Repo: "org/a", Priority: 1, Title: "A"}}
+	g, _ := task.BuildGraph(tasks)
+	pool := &AgentPoolInfo{
+		GetQuotas: func() []QuotaInfo {
+			return []QuotaInfo{
+				{Provider: "deepseek", Balance: "4.23", Currency: "USD", Available: true},
+			}
+		},
+	}
+	m := NewTUIModel(g, func() map[string]*task.TaskResult { return nil }, nil, "", time.Now(), pool)
+	m.width = 120
+	m.height = 40
+
+	content := m.renderAgentContent(15)
+	if !strings.Contains(content, "deepseek") {
+		t.Error("agent panel should show deepseek quota")
+	}
+	if !strings.Contains(content, "4.23") {
+		t.Error("agent panel should show balance")
+	}
+}
+
+func TestShowBottomPanel_WithAgentPoolOnly(t *testing.T) {
+	tasks := []task.Task{{ID: "t1", Repo: "org/repo", Priority: 1, Title: "T"}}
+	g, _ := task.BuildGraph(tasks)
+	pool := &AgentPoolInfo{Agents: []AgentInfo{{Name: "codex", Skills: 1}}}
+	m := NewTUIModel(g, func() map[string]*task.TaskResult { return nil }, nil, "", time.Now(), pool)
+	m.width = 120
+	m.height = 40
+	if !m.showBottomPanel() {
+		t.Error("bottom panel should be visible with agentPool even without logPath")
+	}
+}
+
+func TestSessionTimer_InHeader(t *testing.T) {
+	tasks := []task.Task{{ID: "t1", Repo: "org/repo", Priority: 1, Title: "T"}}
+	g, _ := task.BuildGraph(tasks)
+	startTime := time.Now().Add(-5 * time.Minute)
+	m := NewTUIModel(g, func() map[string]*task.TaskResult { return nil }, nil, "", startTime, nil)
+	m.width = 120
+	m.height = 40
+
+	view := m.View()
+	if !strings.Contains(view, "5m") {
+		t.Error("header should show elapsed time of ~5m")
 	}
 }

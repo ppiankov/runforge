@@ -13,6 +13,7 @@ import (
 	"os/signal"
 	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
@@ -248,11 +249,12 @@ func runTasks(tasksFile string, workers int, verify bool, reposDir, filter strin
 	}
 
 	// provider quota preflight (auto-detects from env vars)
+	var initialQuotas []*runner.QuotaInfo
 	if !dryRun && !allScriptTasks(tasks) {
 		quotaCtx, quotaCancel := context.WithTimeout(context.Background(), 30*time.Second)
-		quotaInfos := runner.CheckAllQuotas(quotaCtx, os.Getenv)
+		initialQuotas = runner.CheckAllQuotas(quotaCtx, os.Getenv)
 		quotaCancel()
-		for _, qi := range quotaInfos {
+		for _, qi := range initialQuotas {
 			if qi.Error != "" && qi.UsedTokens == 0 && qi.Balance == "" {
 				slog.Debug("quota check", "provider", qi.Provider, "note", qi.Error)
 				continue
@@ -334,26 +336,27 @@ func runTasks(tasksFile string, workers int, verify bool, reposDir, filter strin
 	}
 
 	report, err := executeRun(execRunConfig{
-		tasksFiles:   paths,
-		taskFile:     tf,
-		tasks:        tasks,
-		graph:        graph,
-		workers:      workers,
-		reposDir:     reposDir,
-		filter:       filter,
-		maxRuntime:   maxRuntime,
-		maxRetries:   maxRetries,
-		idleTimeout:  idleTimeout,
-		failFast:     failFast,
-		postRun:      cfg.PostRun,
-		settings:     cfg,
-		tuiMode:      tuiMode,
-		allowFree:    allowFree,
-		secretRepos:  secretRepos,
-		stateTracker: stateTracker,
-		noAutoCommit: noAutoCommit,
-		parallelRepo: parallelRepo || (cfg != nil && cfg.ParallelRepo),
-		mergeBack:    resolveMergeBack(tf, cfg),
+		tasksFiles:    paths,
+		taskFile:      tf,
+		tasks:         tasks,
+		graph:         graph,
+		workers:       workers,
+		reposDir:      reposDir,
+		filter:        filter,
+		maxRuntime:    maxRuntime,
+		maxRetries:    maxRetries,
+		idleTimeout:   idleTimeout,
+		failFast:      failFast,
+		postRun:       cfg.PostRun,
+		settings:      cfg,
+		tuiMode:       tuiMode,
+		allowFree:     allowFree,
+		secretRepos:   secretRepos,
+		stateTracker:  stateTracker,
+		noAutoCommit:  noAutoCommit,
+		parallelRepo:  parallelRepo || (cfg != nil && cfg.ParallelRepo),
+		mergeBack:     resolveMergeBack(tf, cfg),
+		initialQuotas: initialQuotas,
 	})
 	if err != nil {
 		return err
@@ -380,28 +383,29 @@ func runTasks(tasksFile string, workers int, verify bool, reposDir, filter strin
 
 // execRunConfig holds parameters for executeRun.
 type execRunConfig struct {
-	tasksFiles   []string
-	taskFile     *task.TaskFile // full parsed/merged file with profiles
-	tasks        []task.Task
-	graph        *task.Graph
-	workers      int
-	reposDir     string
-	filter       string
-	maxRuntime   time.Duration
-	maxRetries   int
-	idleTimeout  time.Duration
-	failFast     bool
-	parentRunID  string                                    // links rerun to original run
-	postRun      string                                    // shell command to run after report is written
-	settings     *config.Settings                          // runtime settings for limiter etc.
-	tuiMode      string                                    // full, minimal, off, auto
-	allowFree    bool                                      // include free-tier runners in cascade
-	secretRepos  map[string]struct{}                       // repos with secrets detected by pre-scan
-	noAutoCommit bool                                      // disable auto-commit of uncommitted changes
-	parallelRepo bool                                      // use git worktrees for parallel same-repo execution
-	mergeBack    bool                                      // auto-merge worktree branches back to main
-	stateTracker *state.Tracker                            // persistent task state across runs
-	onProgress   func(results map[string]*task.TaskResult) // optional progress callback for sentinel
+	tasksFiles    []string
+	taskFile      *task.TaskFile // full parsed/merged file with profiles
+	tasks         []task.Task
+	graph         *task.Graph
+	workers       int
+	reposDir      string
+	filter        string
+	maxRuntime    time.Duration
+	maxRetries    int
+	idleTimeout   time.Duration
+	failFast      bool
+	parentRunID   string                                    // links rerun to original run
+	postRun       string                                    // shell command to run after report is written
+	settings      *config.Settings                          // runtime settings for limiter etc.
+	tuiMode       string                                    // full, minimal, off, auto
+	allowFree     bool                                      // include free-tier runners in cascade
+	secretRepos   map[string]struct{}                       // repos with secrets detected by pre-scan
+	noAutoCommit  bool                                      // disable auto-commit of uncommitted changes
+	parallelRepo  bool                                      // use git worktrees for parallel same-repo execution
+	mergeBack     bool                                      // auto-merge worktree branches back to main
+	stateTracker  *state.Tracker                            // persistent task state across runs
+	onProgress    func(results map[string]*task.TaskResult) // optional progress callback for sentinel
+	initialQuotas []*runner.QuotaInfo                       // pre-flight quota results to seed TUI cache
 }
 
 // execRunResult wraps the report and run directory.
@@ -528,6 +532,9 @@ func executeRun(cfg execRunConfig) (*execRunResult, error) {
 	var sched *task.Scheduler
 
 	execFn := func(ctx context.Context, t *task.Task, repoDir, outputDir string) *task.TaskResult {
+		// show intended runner immediately so TUI displays it during lock wait
+		sched.SetRunnerUsed(t.ID, t.Runner)
+
 		// acquire execution directory: worktree (parallel) or lock (serial)
 		var execDir string
 		var wtBranch string
@@ -685,7 +692,19 @@ func executeRun(cfg execRunConfig) (*execRunResult, error) {
 			}
 			slog.SetDefault(slog.New(slog.NewTextHandler(f, &slog.HandlerOptions{Level: level})))
 		}
-		tuiModel := reporter.NewTUIModel(cfg.graph, sched.Results, cancel, logPath)
+		// Build agent pool info for TUI (ANCC data + quota refresh)
+		var agentPool *reporter.AgentPoolInfo
+		anccAgents := collectANCCForTUI()
+		qCache := &quotaCache{}
+		if len(cfg.initialQuotas) > 0 {
+			qCache.set(convertQuotas(cfg.initialQuotas))
+		}
+		startQuotaRefresh(ctx, qCache)
+		agentPool = &reporter.AgentPoolInfo{
+			Agents:    anccAgents,
+			GetQuotas: qCache.get,
+		}
+		tuiModel := reporter.NewTUIModel(cfg.graph, sched.Results, cancel, logPath, start, agentPool)
 		tuiProgram = tea.NewProgram(tuiModel, tea.WithAltScreen())
 		go func() {
 			if _, err := tuiProgram.Run(); err != nil {
@@ -1280,4 +1299,100 @@ func collectUsedRunners(tf *task.TaskFile) map[string]struct{} {
 		}
 	}
 	return runners
+}
+
+// quotaCache provides thread-safe access to periodically refreshed quota data.
+type quotaCache struct {
+	mu     sync.RWMutex
+	quotas []reporter.QuotaInfo
+}
+
+func (qc *quotaCache) get() []reporter.QuotaInfo {
+	qc.mu.RLock()
+	defer qc.mu.RUnlock()
+	out := make([]reporter.QuotaInfo, len(qc.quotas))
+	copy(out, qc.quotas)
+	return out
+}
+
+func (qc *quotaCache) set(quotas []reporter.QuotaInfo) {
+	qc.mu.Lock()
+	defer qc.mu.Unlock()
+	qc.quotas = quotas
+}
+
+// convertQuotas converts runner.QuotaInfo to reporter.QuotaInfo (avoids circular import).
+func convertQuotas(infos []*runner.QuotaInfo) []reporter.QuotaInfo {
+	var out []reporter.QuotaInfo
+	for _, qi := range infos {
+		out = append(out, reporter.QuotaInfo{
+			Provider:   qi.Provider,
+			UsedTokens: qi.UsedTokens,
+			BurnRate:   qi.BurnRatePerDay,
+			Balance:    qi.Balance,
+			Currency:   qi.Currency,
+			Available:  qi.Available,
+			Error:      qi.Error,
+		})
+	}
+	return out
+}
+
+// startQuotaRefresh launches a background goroutine that refreshes quotas every 5 minutes.
+func startQuotaRefresh(ctx context.Context, cache *quotaCache) {
+	ticker := time.NewTicker(5 * time.Minute)
+	go func() {
+		defer ticker.Stop()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-ticker.C:
+				qCtx, qCancel := context.WithTimeout(ctx, 30*time.Second)
+				infos := runner.CheckAllQuotas(qCtx, os.Getenv)
+				qCancel()
+				if len(infos) > 0 {
+					cache.set(convertQuotas(infos))
+				}
+			}
+		}
+	}()
+}
+
+// collectANCCForTUI gathers ANCC agent data for the TUI agent panel.
+// Returns nil if ANCC is not available.
+func collectANCCForTUI() []reporter.AgentInfo {
+	_, err := exec.LookPath("ancc")
+	if err != nil {
+		return nil
+	}
+
+	out, err := exec.Command("ancc", "skills", "--format", "json").CombinedOutput()
+	if err != nil {
+		return nil
+	}
+
+	var result anccSkillsResult
+	if err := json.Unmarshal(out, &result); err != nil {
+		return nil
+	}
+
+	agentMap := mapANCCAgents(result.Agents)
+
+	knownRunners := []string{"codex", "claude", "gemini", "opencode", "cline", "qwen"}
+	var agents []reporter.AgentInfo
+	for _, name := range knownRunners {
+		a, found := agentMap[name]
+		if !found {
+			continue
+		}
+		agents = append(agents, reporter.AgentInfo{
+			Name:   name,
+			Skills: a.Skills,
+			Hooks:  a.Hooks,
+			MCP:    a.MCP,
+			Tokens: a.Tokens,
+		})
+	}
+	return agents
 }

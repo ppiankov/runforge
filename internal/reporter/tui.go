@@ -18,13 +18,40 @@ var spinnerChars = []string{"⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "�
 
 // Panel focus constants.
 const (
-	panelTasks = 0
-	panelLogs  = 1
+	panelTasks  = 0
+	panelLogs   = 1
+	panelAgents = 2
 
 	maxLogLines       = 1000 // ring buffer cap for log lines
 	minHeightForSplit = 20   // below this, hide log panel
 	taskPanelRatio    = 0.70 // 70% tasks, 30% logs
 )
+
+// AgentPoolInfo holds agent readiness and quota data for the TUI agent panel.
+type AgentPoolInfo struct {
+	Agents    []AgentInfo
+	GetQuotas func() []QuotaInfo // nil-safe; called on tick
+}
+
+// AgentInfo describes one agent from ANCC.
+type AgentInfo struct {
+	Name   string
+	Skills int
+	Hooks  int
+	MCP    int
+	Tokens int // config token overhead
+}
+
+// QuotaInfo mirrors runner.QuotaInfo to avoid circular import.
+type QuotaInfo struct {
+	Provider   string
+	UsedTokens int
+	BurnRate   int // tokens/day
+	Balance    string
+	Currency   string
+	Available  bool
+	Error      string
+}
 
 // TUI styles
 var (
@@ -55,6 +82,7 @@ type TUIModel struct {
 	graph      *task.Graph
 	getResults func() map[string]*task.TaskResult
 	cancelRun  func() // called on 'q' to cancel the run context
+	startTime  time.Time
 
 	results      map[string]*task.TaskResult
 	scrollOffset int
@@ -70,19 +98,24 @@ type TUIModel struct {
 	logOffset     int64    // file read offset for incremental reads
 	logScroll     int      // scroll offset within log panel
 	logAutoScroll bool     // true = follow tail
-	focusedPanel  int      // panelTasks or panelLogs
+	focusedPanel  int      // panelTasks, panelLogs, or panelAgents
+
+	// Agent panel state
+	agentPool *AgentPoolInfo
 }
 
-// NewTUIModel creates a new TUI model. When logPath is non-empty, a log panel
-// is shown below the task panel (split TUI).
-func NewTUIModel(graph *task.Graph, getResults func() map[string]*task.TaskResult, cancelRun func(), logPath string) TUIModel {
+// NewTUIModel creates a new TUI model. When logPath is non-empty, a split layout
+// is shown with task panel + bottom panel (log/agents, Tab-switchable).
+func NewTUIModel(graph *task.Graph, getResults func() map[string]*task.TaskResult, cancelRun func(), logPath string, startTime time.Time, agentPool *AgentPoolInfo) TUIModel {
 	return TUIModel{
 		graph:         graph,
 		getResults:    getResults,
 		cancelRun:     cancelRun,
+		startTime:     startTime,
 		results:       make(map[string]*task.TaskResult),
 		logPath:       logPath,
 		logAutoScroll: true,
+		agentPool:     agentPool,
 	}
 }
 
@@ -113,15 +146,15 @@ func (m TUIModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.paused = !m.paused
 
 		case "tab":
-			if m.showLogPanel() {
-				m.focusedPanel = (m.focusedPanel + 1) % 2
-				if m.focusedPanel == panelTasks {
+			if m.showBottomPanel() {
+				m.focusedPanel = (m.focusedPanel + 1) % 3
+				if m.focusedPanel != panelLogs {
 					m.logAutoScroll = true
 				}
 			}
 
 		case "j", "down":
-			if m.focusedPanel == panelLogs && m.showLogPanel() {
+			if m.focusedPanel == panelLogs && m.showBottomPanel() {
 				m.logAutoScroll = false
 				m.logScrollDown(1)
 			} else {
@@ -129,7 +162,7 @@ func (m TUIModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 
 		case "k", "up":
-			if m.focusedPanel == panelLogs && m.showLogPanel() {
+			if m.focusedPanel == panelLogs && m.showBottomPanel() {
 				m.logAutoScroll = false
 				m.logScrollUp(1)
 			} else {
@@ -137,7 +170,7 @@ func (m TUIModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 
 		case "g", "home":
-			if m.focusedPanel == panelLogs && m.showLogPanel() {
+			if m.focusedPanel == panelLogs && m.showBottomPanel() {
 				m.logAutoScroll = false
 				m.logScroll = 0
 			} else {
@@ -145,7 +178,7 @@ func (m TUIModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 
 		case "G", "end":
-			if m.focusedPanel == panelLogs && m.showLogPanel() {
+			if m.focusedPanel == panelLogs && m.showBottomPanel() {
 				m.logAutoScroll = true
 				m.logScroll = m.maxLogScroll()
 			} else {
@@ -153,7 +186,7 @@ func (m TUIModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 
 		case "pgdown":
-			if m.focusedPanel == panelLogs && m.showLogPanel() {
+			if m.focusedPanel == panelLogs && m.showBottomPanel() {
 				m.logAutoScroll = false
 				_, logH := m.panelHeights()
 				m.logScrollDown(m.visibleLogLines(logH))
@@ -162,7 +195,7 @@ func (m TUIModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 
 		case "pgup":
-			if m.focusedPanel == panelLogs && m.showLogPanel() {
+			if m.focusedPanel == panelLogs && m.showBottomPanel() {
 				m.logAutoScroll = false
 				_, logH := m.panelHeights()
 				m.logScrollUp(m.visibleLogLines(logH))
@@ -202,7 +235,7 @@ func (m *TUIModel) scrollUp(n int) {
 }
 
 func (m TUIModel) visibleTasks() int {
-	if m.showLogPanel() {
+	if m.showBottomPanel() {
 		taskH, _ := m.panelHeights()
 		return m.visibleTasksInPanel(taskH)
 	}
@@ -239,14 +272,14 @@ func (m *TUIModel) logScrollUp(n int) {
 	}
 }
 
-func (m TUIModel) showLogPanel() bool {
-	return m.logPath != "" && m.height >= minHeightForSplit
+func (m TUIModel) showBottomPanel() bool {
+	return (m.logPath != "" || m.agentPool != nil) && m.height >= minHeightForSplit
 }
 
 // panelHeights returns (taskPanelHeight, logPanelHeight) including borders.
 // One line is reserved for the help bar below both panels.
 func (m TUIModel) panelHeights() (int, int) {
-	if !m.showLogPanel() {
+	if !m.showBottomPanel() {
 		return m.height, 0
 	}
 	available := m.height - 1 // reserve 1 for help line
@@ -346,11 +379,11 @@ func (m TUIModel) View() string {
 		return ""
 	}
 
-	if !m.showLogPanel() {
+	if !m.showBottomPanel() {
 		return m.viewSinglePanel()
 	}
 
-	taskH, logH := m.panelHeights()
+	taskH, bottomH := m.panelHeights()
 
 	// Task panel content inside border
 	taskContent := m.renderTaskContent(taskH)
@@ -360,20 +393,31 @@ func (m TUIModel) View() string {
 		Height(taskH - 2).
 		Render(taskContent)
 
-	// Log panel content inside border
-	logContent := m.renderLogContent(logH)
-	logBorder := panelBorderStyle(m.focusedPanel == panelLogs)
-	logPanel := logBorder.
+	// Bottom panel: logs or agents depending on focusedPanel
+	var bottomContent string
+	var bottomFocused bool
+	if m.focusedPanel == panelAgents {
+		bottomContent = m.renderAgentContent(bottomH)
+		bottomFocused = true
+	} else {
+		bottomContent = m.renderLogContent(bottomH)
+		bottomFocused = m.focusedPanel == panelLogs
+	}
+	bottomBorder := panelBorderStyle(bottomFocused)
+	bottomPanel := bottomBorder.
 		Width(m.width - 2).
-		Height(logH - 2).
-		Render(logContent)
+		Height(bottomH - 2).
+		Render(bottomContent)
 
-	combined := lipgloss.JoinVertical(lipgloss.Left, taskPanel, logPanel)
+	combined := lipgloss.JoinVertical(lipgloss.Left, taskPanel, bottomPanel)
 
 	// Help line below both panels
 	focusHint := "tasks"
-	if m.focusedPanel == panelLogs {
+	switch m.focusedPanel {
+	case panelLogs:
 		focusHint = "logs"
+	case panelAgents:
+		focusHint = "agents"
 	}
 	help := helpStyle.Render(fmt.Sprintf(
 		"  tab: switch [%s]  ↑↓/jk: scroll  g/G: top/bottom  p: pause  q: quit",
@@ -412,7 +456,7 @@ func (m TUIModel) viewSinglePanel() string {
 	}
 	queued += total - len(m.results)
 
-	header := fmt.Sprintf("tokencontrol — %d tasks", total)
+	header := fmt.Sprintf("tokencontrol — %d tasks  %s", total, time.Since(m.startTime).Truncate(time.Second))
 	if m.paused {
 		header += "  " + pauseStyle.Render("⏸ PAUSED")
 	}
@@ -492,7 +536,7 @@ func (m TUIModel) renderTaskContent(panelHeight int) string {
 	}
 	queued += total - len(m.results)
 
-	header := fmt.Sprintf("tokencontrol — %d tasks", total)
+	header := fmt.Sprintf("tokencontrol — %d tasks  %s", total, time.Since(m.startTime).Truncate(time.Second))
 	if m.paused {
 		header += "  " + pauseStyle.Render("⏸ PAUSED")
 	}
@@ -575,6 +619,107 @@ func (m TUIModel) renderLogContent(panelHeight int) string {
 	}
 
 	return b.String()
+}
+
+// renderAgentContent builds the agent pool panel content.
+func (m TUIModel) renderAgentContent(panelHeight int) string {
+	var b strings.Builder
+
+	b.WriteString(headerStyle.Render("AGENTS"))
+	b.WriteString("\n")
+
+	stats := m.agentStats()
+
+	if m.agentPool != nil && len(m.agentPool.Agents) > 0 {
+		for _, a := range m.agentPool.Agents {
+			s := stats[a.Name]
+			status := dimStyle.Render("idle")
+			if s.Running > 0 {
+				status = runStyle.Render("running")
+			}
+			b.WriteString(fmt.Sprintf("  %-12s %d skills  %d hooks  %s\n", a.Name, a.Skills, a.Hooks, status))
+			b.WriteString(fmt.Sprintf("    %s%d done  %d fail  %s%s\n",
+				"", s.Done, s.Failed,
+				formatCompactTokens(s.Tokens), ""))
+			delete(stats, a.Name)
+		}
+	}
+
+	// show runners not in ANCC (stats-only)
+	for name, s := range stats {
+		status := dimStyle.Render("idle")
+		if s.Running > 0 {
+			status = runStyle.Render("running")
+		}
+		b.WriteString(fmt.Sprintf("  %-12s %s\n", name, status))
+		b.WriteString(fmt.Sprintf("    %d done  %d fail  %s\n", s.Done, s.Failed, formatCompactTokens(s.Tokens)))
+	}
+
+	// Quota section
+	var quotas []QuotaInfo
+	if m.agentPool != nil && m.agentPool.GetQuotas != nil {
+		quotas = m.agentPool.GetQuotas()
+	}
+	if len(quotas) > 0 {
+		b.WriteString("\n")
+		b.WriteString(headerStyle.Render("QUOTAS"))
+		b.WriteString("\n")
+		for _, q := range quotas {
+			if q.Error != "" && q.UsedTokens == 0 && q.Balance == "" {
+				continue
+			}
+			var info string
+			if q.Balance != "" {
+				avail := doneStyle.Render("available")
+				if !q.Available {
+					avail = failedStyle.Render("exhausted")
+				}
+				info = fmt.Sprintf("$%s %s  %s", q.Balance, q.Currency, avail)
+			} else if q.UsedTokens > 0 {
+				info = fmt.Sprintf("%s/7d  %s/day",
+					formatCompactTokens(q.UsedTokens),
+					formatCompactTokens(q.BurnRate))
+			}
+			b.WriteString(fmt.Sprintf("  %-14s %s\n", q.Provider, info))
+		}
+	} else {
+		b.WriteString("\n")
+		b.WriteString(dimStyle.Render("  quotas: unavailable"))
+	}
+
+	return b.String()
+}
+
+// agentStat holds per-runner runtime statistics.
+type agentStat struct {
+	Done    int
+	Failed  int
+	Running int
+	Tokens  int
+}
+
+// agentStats computes per-runner stats from current results.
+func (m TUIModel) agentStats() map[string]agentStat {
+	stats := make(map[string]agentStat)
+	for _, res := range m.results {
+		if res.RunnerUsed == "" {
+			continue
+		}
+		s := stats[res.RunnerUsed]
+		switch res.State {
+		case task.StateCompleted:
+			s.Done++
+		case task.StateFailed:
+			s.Failed++
+		case task.StateRunning:
+			s.Running++
+		}
+		if res.TokensUsed != nil {
+			s.Tokens += res.TokensUsed.TotalTokens
+		}
+		stats[res.RunnerUsed] = s
+	}
+	return stats
 }
 
 func (m TUIModel) buildTaskLines() []string {
