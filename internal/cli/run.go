@@ -186,6 +186,13 @@ func runTasks(tasksFile string, workers int, verify bool, reposDir, filter strin
 		return nil
 	}
 
+	// warn if no cascade configured — single-runner dispatch wastes fallback potential
+	if !hasCascadeConfig(tf, cfg) && !allScriptTasks(tasks) {
+		slog.Warn("no runner cascade configured — all tasks will use a single runner",
+			"default", "codex",
+			"hint", "run 'tokencontrol init' to configure runners and fallbacks")
+	}
+
 	// stripe runner assignments for parallel provider utilization
 	defaultRunner := tf.DefaultRunner
 	if defaultRunner == "" {
@@ -1239,6 +1246,23 @@ func checkRunReadiness(tf *task.TaskFile) []string {
 	}
 
 	return warnings
+}
+
+// hasCascadeConfig returns true if either the task file or settings define
+// runner fallbacks. Without fallbacks, all tasks run on a single runner.
+func hasCascadeConfig(tf *task.TaskFile, cfg *config.Settings) bool {
+	if len(tf.DefaultFallbacks) > 0 {
+		return true
+	}
+	if cfg != nil && len(cfg.DefaultFallbacks) > 0 {
+		return true
+	}
+	for _, t := range tf.Tasks {
+		if len(t.Fallbacks) > 0 {
+			return true
+		}
+	}
+	return false
 }
 
 // collectUsedRunners extracts unique runner names from a task file.
