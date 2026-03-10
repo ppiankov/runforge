@@ -1451,3 +1451,82 @@ func TestCascade_OnAttemptStartCallback(t *testing.T) {
 		t.Errorf("second callback should be zai, got %s", callbackRunners[1])
 	}
 }
+
+func TestInjectDocDirective_Appends(t *testing.T) {
+	tasks := []task.Task{{ID: "a", Prompt: "fix the bug", Runner: "codex"}}
+	runners := map[string]runner.Runner{"codex": &mockRunner{name: "codex"}}
+	injectDocDirective(tasks, runners, "docs/tokencontrol")
+	if !strings.Contains(tasks[0].Prompt, "docs/tokencontrol/") {
+		t.Error("expected doc directive appended to prompt")
+	}
+}
+
+func TestInjectDocDirective_SkipsScript(t *testing.T) {
+	tasks := []task.Task{{ID: "a", Prompt: "echo hello", Runner: "script"}}
+	runners := map[string]runner.Runner{"script": &runner.ScriptRunner{}}
+	orig := tasks[0].Prompt
+	injectDocDirective(tasks, runners, "docs/tokencontrol")
+	if tasks[0].Prompt != orig {
+		t.Error("script runner task prompt should not be modified")
+	}
+}
+
+func TestInjectDocDirective_SkipsDuplicate(t *testing.T) {
+	tasks := []task.Task{{ID: "a", Prompt: "fix bug, put docs in docs/tokencontrol", Runner: "codex"}}
+	runners := map[string]runner.Runner{"codex": &mockRunner{name: "codex"}}
+	orig := tasks[0].Prompt
+	injectDocDirective(tasks, runners, "docs/tokencontrol")
+	if tasks[0].Prompt != orig {
+		t.Error("prompt already containing docs dir should not be modified")
+	}
+}
+
+func TestMirrorRunDocs_CopiesArtifacts(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	// set up a fake repo
+	repoDir := filepath.Join(tmpDir, "myrepo")
+	if err := os.MkdirAll(repoDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	// set up a fake run dir with task output
+	runDir := filepath.Join(tmpDir, "run")
+	taskOutputDir := filepath.Join(runDir, "task-1")
+	if err := os.MkdirAll(taskOutputDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	_ = os.WriteFile(filepath.Join(taskOutputDir, "events.jsonl"), []byte(`{"event":"done"}`), 0o644)
+	_ = os.WriteFile(filepath.Join(taskOutputDir, "output.md"), []byte("# Summary"), 0o644)
+
+	// set up a fake task file
+	tasksFile := filepath.Join(tmpDir, "tasks.json")
+	_ = os.WriteFile(tasksFile, []byte(`{"tasks":[]}`), 0o644)
+
+	report := &task.RunReport{RunID: "abc123"}
+	tasks := []task.Task{{ID: "task-1", Repo: repoDir}}
+
+	mirrorRunDocs(report, tasks, tmpDir, "docs/tokencontrol", runDir, []string{tasksFile})
+
+	// verify report.json
+	destDir := filepath.Join(repoDir, "docs/tokencontrol", "abc123")
+	if _, err := os.Stat(filepath.Join(destDir, "report.json")); err != nil {
+		t.Error("report.json not mirrored")
+	}
+	// verify original task file
+	if _, err := os.Stat(filepath.Join(destDir, "tasks.json")); err != nil {
+		t.Error("tasks.json not mirrored")
+	}
+	// verify per-task artifacts
+	taskDest := filepath.Join(destDir, "task-1")
+	if _, err := os.Stat(filepath.Join(taskDest, "events.jsonl")); err != nil {
+		t.Error("events.jsonl not mirrored")
+	}
+	if _, err := os.Stat(filepath.Join(taskDest, "output.md")); err != nil {
+		t.Error("output.md not mirrored")
+	}
+	// output.log should not exist (wasn't in source)
+	if _, err := os.Stat(filepath.Join(taskDest, "output.log")); err == nil {
+		t.Error("output.log should not exist")
+	}
+}

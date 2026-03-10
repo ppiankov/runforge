@@ -42,6 +42,17 @@ type Settings struct {
 
 	// Codex quota preflight guard before dispatch.
 	CodexQuota *CodexQuotaConfig `yaml:"codex_quota,omitempty"`
+
+	// Directory for agent-generated docs (gitignored); default "docs/tokencontrol"
+	DocsDir string `yaml:"docs_dir,omitempty"`
+}
+
+// EffectiveDocsDir returns the configured docs directory or the default.
+func (s *Settings) EffectiveDocsDir() string {
+	if s != nil && s.DocsDir != "" {
+		return s.DocsDir
+	}
+	return "docs/tokencontrol"
 }
 
 // CodexQuotaConfig controls preflight budget checks for codex-bound tasks.

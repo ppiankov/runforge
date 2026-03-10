@@ -529,12 +529,18 @@ func executeRun(cfg execRunConfig) (*execRunResult, error) {
 	// inject commit instructions into all agent-bound prompts (safety net)
 	injectCommitInstructions(cfg.tasks, runners)
 
+	// tell agents to write generated docs to the gitignored docs dir
+	injectDocDirective(cfg.tasks, runners, cfg.settings.EffectiveDocsDir())
+
 	// Forward-declare scheduler so execFn closure can call SetRunnerUsed.
 	var sched *task.Scheduler
 
 	execFn := func(ctx context.Context, t *task.Task, repoDir, outputDir string) *task.TaskResult {
 		// show intended runner immediately so TUI displays it during lock wait
 		sched.SetRunnerUsed(t.ID, t.Runner)
+
+		// ensure agent docs dir exists (gitignored)
+		_ = os.MkdirAll(filepath.Join(repoDir, cfg.settings.EffectiveDocsDir()), 0o755)
 
 		// acquire execution directory: worktree (parallel) or lock (serial)
 		var execDir string
@@ -773,6 +779,9 @@ func executeRun(cfg execRunConfig) (*execRunResult, error) {
 	if err := reporter.WriteSARIFReport(report, cfg.graph, sarifPath); err != nil {
 		slog.Warn("failed to write sarif report", "error", err)
 	}
+
+	// mirror run artifacts to docs/tokencontrol/<run-id>/ in each repo
+	mirrorRunDocs(report, cfg.tasks, cfg.reposDir, cfg.settings.EffectiveDocsDir(), runDir, cfg.tasksFiles)
 
 	// auto-graylist runners that produced false positives
 	autoGraylistRunners(results, graylist, tf.Runners, report.RunID)
@@ -1220,6 +1229,78 @@ func injectCommitInstructions(tasks []task.Task, runners map[string]runner.Runne
 			continue
 		}
 		tasks[i].Prompt += commitInstruction
+	}
+}
+
+// injectDocDirective tells agents to place generated documentation in the gitignored
+// docs directory. Script runner tasks are skipped since their prompts are shell commands.
+func injectDocDirective(tasks []task.Task, runners map[string]runner.Runner, docsDir string) {
+	directive := fmt.Sprintf(
+		"\n\nIMPORTANT: When generating documentation files (summaries, changelogs, "+
+			"analysis, or any markdown artifacts), place them in %s/ inside the repository. "+
+			"Do NOT place generated documentation in the repository root or docs/ directly. "+
+			"The %s/ directory is reserved for agent-generated artifacts.", docsDir, docsDir)
+
+	for i := range tasks {
+		if r, ok := runners[tasks[i].Runner]; ok {
+			if _, isScript := r.(*runner.ScriptRunner); isScript {
+				continue
+			}
+		}
+		if strings.Contains(tasks[i].Prompt, docsDir) {
+			continue
+		}
+		tasks[i].Prompt += directive
+	}
+}
+
+// mirrorRunDocs copies run-level artifacts (report, original task files) and per-task
+// outputs to docs/tokencontrol/<run-id>/ in each repo touched by the run.
+func mirrorRunDocs(report *task.RunReport, tasks []task.Task, reposDir, docsDir, runDir string, tasksFiles []string) {
+	seen := make(map[string]bool)
+	for _, t := range tasks {
+		repoDir := config.RepoPath(t.Repo, reposDir)
+		if seen[repoDir] {
+			continue
+		}
+		seen[repoDir] = true
+
+		destDir := filepath.Join(repoDir, docsDir, report.RunID)
+		if err := os.MkdirAll(destDir, 0o755); err != nil {
+			continue
+		}
+
+		// copy report
+		data, err := json.MarshalIndent(report, "", "  ")
+		if err == nil {
+			_ = os.WriteFile(filepath.Join(destDir, "report.json"), data, 0o644)
+		}
+
+		// copy original task file(s) that caused this run
+		for _, tf := range tasksFiles {
+			src, err := os.ReadFile(tf)
+			if err != nil {
+				continue
+			}
+			_ = os.WriteFile(filepath.Join(destDir, filepath.Base(tf)), src, 0o644)
+		}
+	}
+
+	// copy per-task artifacts from run dir into each repo's docs
+	for _, t := range tasks {
+		repoDir := config.RepoPath(t.Repo, reposDir)
+		taskOutputDir := filepath.Join(runDir, t.ID)
+		taskDestDir := filepath.Join(repoDir, docsDir, report.RunID, t.ID)
+		if err := os.MkdirAll(taskDestDir, 0o755); err != nil {
+			continue
+		}
+		for _, name := range []string{"events.jsonl", "output.md", "output.log", "task.json"} {
+			src, err := os.ReadFile(filepath.Join(taskOutputDir, name))
+			if err != nil {
+				continue
+			}
+			_ = os.WriteFile(filepath.Join(taskDestDir, name), src, 0o644)
+		}
 	}
 }
 
