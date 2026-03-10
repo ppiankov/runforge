@@ -941,24 +941,25 @@ func (m TUIModel) buildTaskLines() []string {
 	showCursor := m.focusedPanel == panelTasks && m.taskCtrl != nil
 
 	for i, e := range entries {
+		prefix := " "
+		if showCursor && i == m.taskCursor {
+			prefix = cursorStyle.Render(">")
+		}
+
 		var line string
 		switch {
 		case e.res == nil || e.state == task.StatePending || e.state == task.StateReady:
-			line = m.fmtQueued(e.t)
+			line = prefix + m.fmtQueued(e.t)
 		case e.state == task.StateFailed || e.state == task.StateSkipped:
-			line = m.fmtFailed(e.res, e.t)
+			line = prefix + m.fmtFailed(e.res, e.t)
 		case e.state == task.StateRunning:
-			line = m.fmtRunning(e.res, e.t, spinner)
+			line = prefix + m.fmtRunning(e.res, e.t, spinner)
 		case e.state == task.StateCompleted:
-			line = m.fmtDone(e.res, e.t)
+			line = prefix + m.fmtDone(e.res, e.t)
 		case e.state == task.StateRateLimited:
-			line = m.fmtRateLimited(e.res, e.t)
+			line = prefix + m.fmtRateLimited(e.res, e.t)
 		default:
-			line = m.fmtQueued(e.t)
-		}
-
-		if showCursor && i == m.taskCursor {
-			line = cursorStyle.Render(">") + line[1:] // replace leading space with cursor
+			line = prefix + m.fmtQueued(e.t)
 		}
 		lines = append(lines, line)
 	}
