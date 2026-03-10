@@ -44,6 +44,8 @@ func newRunCmd() *cobra.Command {
 		parallelRepo bool
 		maxRetries   int
 
+		strictReadiness bool
+
 		codexQuotaRemaining int
 		codexQuotaReserve   int
 		codexQuotaLookback  int
@@ -101,7 +103,7 @@ func newRunCmd() *cobra.Command {
 				Enforce:         codexQuotaEnforce,
 				LookbackRuns:    codexQuotaLookback,
 			}
-			return runTasks(tasksFile, workers, verify, reposDir, filter, dryRun, maxRuntime, idleTimeout, failFast, tuiMode, allowFree, retry, noAutoCommit, parallelRepo, maxRetries, quotaCfg, cfg)
+			return runTasks(tasksFile, workers, verify, reposDir, filter, dryRun, maxRuntime, idleTimeout, failFast, tuiMode, allowFree, retry, noAutoCommit, parallelRepo, strictReadiness, maxRetries, quotaCfg, cfg)
 		},
 	}
 
@@ -120,6 +122,7 @@ func newRunCmd() *cobra.Command {
 	cmd.Flags().BoolVar(&noAutoCommit, "no-auto-commit", false, "disable auto-commit of uncommitted changes after task completion")
 	cmd.Flags().BoolVar(&parallelRepo, "parallel-repo", false, "use git worktrees for parallel same-repo task execution")
 	cmd.Flags().IntVar(&maxRetries, "max-retries", 2, "max retries per runner on transient failures (connectivity, idle timeout); 0 disables")
+	cmd.Flags().BoolVar(&strictReadiness, "strict-readiness", false, "fail if agent readiness checks produce warnings")
 	cmd.Flags().IntVar(&codexQuotaRemaining, "codex-quota-remaining", 0, "remaining codex budget in tokens; 0 disables quota preflight")
 	cmd.Flags().IntVar(&codexQuotaReserve, "codex-quota-reserve", 0, "tokens to hold back from codex remaining budget")
 	cmd.Flags().Float64Var(&codexQuotaSafety, "codex-quota-safety", defaultQuotaSafetyFactor, "multiplier applied to estimated codex tokens")
@@ -129,7 +132,7 @@ func newRunCmd() *cobra.Command {
 	return cmd
 }
 
-func runTasks(tasksFile string, workers int, verify bool, reposDir, filter string, dryRun bool, maxRuntime, idleTimeout time.Duration, failFast bool, tuiMode string, allowFree, retry, noAutoCommit, parallelRepo bool, maxRetries int, quotaCfg quotaPreflightConfig, cfg *config.Settings) error {
+func runTasks(tasksFile string, workers int, verify bool, reposDir, filter string, dryRun bool, maxRuntime, idleTimeout time.Duration, failFast bool, tuiMode string, allowFree, retry, noAutoCommit, parallelRepo, strictReadiness bool, maxRetries int, quotaCfg quotaPreflightConfig, cfg *config.Settings) error {
 	// resolve glob pattern to concrete file paths
 	paths, err := config.ResolveGlob(tasksFile)
 	if err != nil {
@@ -278,6 +281,13 @@ func runTasks(tasksFile string, workers int, verify bool, reposDir, filter strin
 		}
 	}
 
+	// agent readiness check (ANCC-based, optional)
+	readinessWarnings := checkRunReadiness(tf)
+	if strictReadiness && len(readinessWarnings) > 0 {
+		return fmt.Errorf("agent readiness check failed (--strict-readiness): %s",
+			strings.Join(readinessWarnings, "; "))
+	}
+
 	// pre-scan repos for secrets (used by dry-run display and execution filtering)
 	secretRepos := preScanRepos(tasks, reposDir)
 
@@ -301,6 +311,9 @@ func runTasks(tasksFile string, workers int, verify bool, reposDir, filter strin
 				}
 			}
 			textRep.PrintModelResolutions(reps)
+		}
+		if len(readinessWarnings) > 0 {
+			textRep.PrintReadinessWarnings(readinessWarnings)
 		}
 		if len(secretRepos) > 0 {
 			repos := make([]string, 0, len(secretRepos))
@@ -1182,4 +1195,65 @@ func allScriptTasks(tasks []task.Task) bool {
 		}
 	}
 	return true
+}
+
+// checkRunReadiness runs ANCC-based agent readiness checks for runners used in the task file.
+// Returns nil if ANCC is not available (graceful degradation).
+func checkRunReadiness(tf *task.TaskFile) []string {
+	_, err := exec.LookPath("ancc")
+	if err != nil {
+		return nil
+	}
+
+	out, err := exec.Command("ancc", "skills", "--format", "json").CombinedOutput()
+	if err != nil {
+		return nil
+	}
+
+	var result anccSkillsResult
+	if err := json.Unmarshal(out, &result); err != nil {
+		return nil
+	}
+
+	agentMap := mapANCCAgents(result.Agents)
+	var warnings []string
+
+	usedRunners := collectUsedRunners(tf)
+	safeRunners := map[string]bool{"claude": true, "cline": true}
+
+	for name := range usedRunners {
+		agent, found := agentMap[name]
+		if !found {
+			continue
+		}
+		if agent.Skills == 0 {
+			w := fmt.Sprintf("runner %s: 0 skills loaded", name)
+			slog.Warn("agent readiness", "warning", w)
+			warnings = append(warnings, w)
+		}
+		if safeRunners[name] && agent.Hooks == 0 {
+			w := fmt.Sprintf("runner %s: 0 hooks — secrets unprotected", name)
+			slog.Warn("agent readiness", "warning", w)
+			warnings = append(warnings, w)
+		}
+	}
+
+	return warnings
+}
+
+// collectUsedRunners extracts unique runner names from a task file.
+func collectUsedRunners(tf *task.TaskFile) map[string]struct{} {
+	runners := make(map[string]struct{})
+	if tf.DefaultRunner != "" {
+		runners[tf.DefaultRunner] = struct{}{}
+	}
+	for _, fb := range tf.DefaultFallbacks {
+		runners[fb] = struct{}{}
+	}
+	for _, t := range tf.Tasks {
+		if t.Runner != "" {
+			runners[t.Runner] = struct{}{}
+		}
+	}
+	return runners
 }

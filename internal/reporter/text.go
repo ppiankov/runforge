@@ -231,6 +231,15 @@ func (r *TextReporter) PrintSecretRepos(repos []string) {
 	fmt.Fprintln(r.w)
 }
 
+// PrintReadinessWarnings writes agent readiness warnings for dry-run display.
+func (r *TextReporter) PrintReadinessWarnings(warnings []string) {
+	fmt.Fprintf(r.w, "%sAgent readiness warnings:%s\n", r.c(colorYellow), r.c(colorReset))
+	for _, w := range warnings {
+		fmt.Fprintf(r.w, "  %s! %s%s\n", r.c(colorYellow), w, r.c(colorReset))
+	}
+	fmt.Fprintln(r.w)
+}
+
 // PrintDryRun writes the execution plan without running anything.
 func (r *TextReporter) PrintDryRun(graph *task.Graph, reposDir string) {
 	fmt.Fprint(r.w, "Execution plan (dry-run):\n\n")
