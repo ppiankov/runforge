@@ -665,7 +665,7 @@ func executeRun(cfg execRunConfig) (*execRunResult, error) {
 			}
 			slog.SetDefault(slog.New(slog.NewTextHandler(f, &slog.HandlerOptions{Level: level})))
 		}
-		tuiModel := reporter.NewTUIModel(cfg.graph, sched.Results, cancel)
+		tuiModel := reporter.NewTUIModel(cfg.graph, sched.Results, cancel, logPath)
 		tuiProgram = tea.NewProgram(tuiModel, tea.WithAltScreen())
 		go func() {
 			if _, err := tuiProgram.Run(); err != nil {

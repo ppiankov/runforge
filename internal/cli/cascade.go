@@ -135,7 +135,7 @@ func RunWithCascade(
 
 			// Scan output files for leaked secrets and redact in place.
 			if leaks := runner.ScanOutputDir(attemptDir); leaks > 0 {
-				slog.Warn("output scan found secrets", "task", t.ID, "runner", name, "leaks", leaks)
+				slog.Warn("output scan found secrets", "task", t.ID, "runner", name, "dir", attemptDir, "leaks", leaks)
 			}
 
 			attempts = append(attempts, task.AttemptInfo{
