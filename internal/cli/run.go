@@ -710,9 +710,35 @@ func executeRun(cfg execRunConfig) (*execRunResult, error) {
 			qCache.set(convertQuotas(cfg.initialQuotas))
 		}
 		startQuotaRefresh(ctx, qCache)
+		// Build runner profile info for TUI display.
+		profileInfo := make(map[string]reporter.RunnerProfileInfo)
+		if tf.Runners != nil {
+			for name, rp := range tf.Runners {
+				profileInfo[name] = reporter.RunnerProfileInfo{
+					Model:        rp.Model,
+					Free:         rp.Free,
+					Tier:         rp.Tier,
+					FallbackOnly: rp.FallbackOnly,
+				}
+			}
+		}
 		agentPool = &reporter.AgentPoolInfo{
 			Agents:    anccAgents,
 			GetQuotas: qCache.get,
+
+			IsGraylisted: graylist.IsGraylisted,
+			GrayEntries: func() map[string]reporter.GraylistEntry {
+				raw := graylist.Entries()
+				out := make(map[string]reporter.GraylistEntry, len(raw))
+				for k, v := range raw {
+					out[k] = reporter.GraylistEntry{Model: v.Model, Reason: v.Reason, AddedAt: v.AddedAt}
+				}
+				return out
+			},
+			GrayAdd:       graylist.Add,
+			GrayRemove:    graylist.Remove,
+			IsBlacklisted: blacklist.IsBlocked,
+			Profiles:      profileInfo,
 		}
 		// Collect runner names for interactive picker.
 		var runnerNames []string

@@ -32,6 +32,33 @@ const (
 type AgentPoolInfo struct {
 	Agents    []AgentInfo
 	GetQuotas func() []QuotaInfo // nil-safe; called on tick
+
+	// Graylist control — nil-safe, populated when graylist is available.
+	IsGraylisted func(runner, model string) bool
+	GrayEntries  func() map[string]GraylistEntry // key = "runner:model"
+	GrayAdd      func(runner, model, reason string)
+	GrayRemove   func(runner, model string)
+
+	// Blacklist (read-only from TUI).
+	IsBlacklisted func(runner string) bool
+
+	// Runner profiles for tags (free, tier, fallback-only).
+	Profiles map[string]RunnerProfileInfo
+}
+
+// GraylistEntry mirrors runner.GraylistInfo to avoid circular import.
+type GraylistEntry struct {
+	Model   string
+	Reason  string
+	AddedAt time.Time
+}
+
+// RunnerProfileInfo holds display-relevant fields from runner profiles.
+type RunnerProfileInfo struct {
+	Model        string
+	Free         bool
+	Tier         int
+	FallbackOnly bool
 }
 
 // AgentInfo describes one agent from ANCC.
@@ -128,7 +155,35 @@ type TUIModel struct {
 	focusedPanel  int      // panelTasks, panelLogs, or panelAgents
 
 	// Agent panel state
-	agentPool *AgentPoolInfo
+	agentPool   *AgentPoolInfo
+	agentCursor int
+
+	// Inline confirmation prompt
+	confirm confirmState
+
+	// Toast messages (temporary flash)
+	toasts []toast
+}
+
+// confirmState manages inline confirmation prompts in the agent panel.
+type confirmState struct {
+	active   bool
+	message  string
+	warnings []string
+	onYes    func()
+}
+
+// toast is a temporary flash message with auto-expiry.
+type toast struct {
+	message string
+	expiry  time.Time
+}
+
+// GraylistEventMsg is sent to the TUI when auto-graylist fires.
+type GraylistEventMsg struct {
+	Runner string
+	Model  string
+	Reason string
 }
 
 // NewTUIModel creates a new TUI model. When logPath is non-empty, a split layout
@@ -161,7 +216,16 @@ func tickCmd() tea.Cmd {
 // Update implements tea.Model.
 func (m TUIModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
+	case GraylistEventMsg:
+		m.addToast(fmt.Sprintf("%s:%s auto-graylisted (%s)", msg.Runner, msg.Model, msg.Reason))
+		return m, nil
+
 	case tea.KeyMsg:
+		// Confirm prompt intercepts all keys when active.
+		if m.confirm.active {
+			return m.updateConfirm(msg)
+		}
+
 		// Overlay intercepts all keys when active.
 		if m.overlay.active {
 			return m.updateOverlay(msg)
@@ -190,6 +254,8 @@ func (m TUIModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if m.focusedPanel == panelLogs && m.showBottomPanel() {
 				m.logAutoScroll = false
 				m.logScrollDown(1)
+			} else if m.focusedPanel == panelAgents {
+				m.agentCursorDown()
 			} else if m.focusedPanel == panelTasks {
 				m.taskCursorDown()
 			} else {
@@ -200,13 +266,32 @@ func (m TUIModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if m.focusedPanel == panelLogs && m.showBottomPanel() {
 				m.logAutoScroll = false
 				m.logScrollUp(1)
+			} else if m.focusedPanel == panelAgents {
+				m.agentCursorUp()
 			} else if m.focusedPanel == panelTasks {
 				m.taskCursorUp()
 			} else {
 				m.scrollUp(1)
 			}
 
-		case "g", "home":
+		case "g":
+			switch m.focusedPanel {
+			case panelAgents:
+				m.graylistSelected()
+			case panelLogs:
+				m.logAutoScroll = false
+				m.logScroll = 0
+			default:
+				m.scrollOffset = 0
+				m.taskCursor = 0
+			}
+
+		case "w":
+			if m.focusedPanel == panelAgents {
+				m.whitelistSelected()
+			}
+
+		case "home":
 			if m.focusedPanel == panelLogs && m.showBottomPanel() {
 				m.logAutoScroll = false
 				m.logScroll = 0
@@ -297,6 +382,7 @@ func (m TUIModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.results = m.getResults()
 		}
 		m.readLogLines()
+		m.pruneToasts()
 		m.frame++
 		return m, tickCmd()
 
@@ -363,6 +449,169 @@ func (m *TUIModel) taskCursorUp() {
 	if m.taskCursor < m.scrollOffset {
 		m.scrollOffset = m.taskCursor
 	}
+}
+
+// orderedAgents returns the list of agent names for cursor navigation.
+func (m TUIModel) orderedAgents() []string {
+	var names []string
+	if m.agentPool != nil {
+		for _, a := range m.agentPool.Agents {
+			names = append(names, a.Name)
+		}
+	}
+	stats := m.agentStats()
+	for name := range stats {
+		found := false
+		for _, n := range names {
+			if n == name {
+				found = true
+				break
+			}
+		}
+		if !found {
+			names = append(names, name)
+		}
+	}
+	return names
+}
+
+func (m *TUIModel) agentCursorDown() {
+	total := len(m.orderedAgents())
+	if total == 0 {
+		return
+	}
+	if m.agentCursor < total-1 {
+		m.agentCursor++
+	}
+}
+
+func (m *TUIModel) agentCursorUp() {
+	if m.agentCursor > 0 {
+		m.agentCursor--
+	}
+}
+
+// selectedAgent returns the name and model of the agent at the cursor.
+func (m TUIModel) selectedAgent() (string, string) {
+	agents := m.orderedAgents()
+	if m.agentCursor < 0 || m.agentCursor >= len(agents) {
+		return "", ""
+	}
+	name := agents[m.agentCursor]
+	model := ""
+	if m.agentPool != nil && m.agentPool.Profiles != nil {
+		if p, ok := m.agentPool.Profiles[name]; ok {
+			model = p.Model
+		}
+	}
+	return name, model
+}
+
+// graylistSelected initiates graylist confirm for the selected agent.
+func (m *TUIModel) graylistSelected() {
+	name, model := m.selectedAgent()
+	if name == "" {
+		return
+	}
+	if m.agentPool == nil || m.agentPool.GrayAdd == nil {
+		return
+	}
+	if m.agentPool.IsGraylisted != nil && m.agentPool.IsGraylisted(name, model) {
+		m.addToast(name + " already graylisted")
+		return
+	}
+	label := name
+	if model != "" {
+		label = name + ":" + model
+	}
+	m.confirm = confirmState{
+		active:  true,
+		message: fmt.Sprintf("Graylist %s? [y/n]", label),
+		onYes: func() {
+			m.agentPool.GrayAdd(name, model, "manual")
+			m.addToast(label + " graylisted")
+		},
+	}
+}
+
+// whitelistSelected initiates whitelist confirm with safety warnings.
+func (m *TUIModel) whitelistSelected() {
+	name, model := m.selectedAgent()
+	if name == "" {
+		return
+	}
+	if m.agentPool == nil || m.agentPool.GrayRemove == nil {
+		return
+	}
+	if m.agentPool.IsGraylisted == nil || !m.agentPool.IsGraylisted(name, model) {
+		m.addToast(name + " not graylisted")
+		return
+	}
+
+	label := name
+	if model != "" {
+		label = name + ":" + model
+	}
+
+	var warnings []string
+	if m.agentPool.Profiles != nil {
+		if p, ok := m.agentPool.Profiles[name]; ok {
+			if p.Free {
+				warnings = append(warnings, "free-tier model — may produce low-quality results")
+			}
+			if p.Tier >= 3 {
+				warnings = append(warnings, fmt.Sprintf("tier-%d runner — low capability", p.Tier))
+			}
+		}
+	}
+	// check if auto-graylisted
+	if m.agentPool.GrayEntries != nil {
+		for _, entry := range m.agentPool.GrayEntries() {
+			if entry.Model == model && strings.Contains(entry.Reason, "false positive") {
+				warnings = append(warnings, "auto-graylisted due to false positive detection")
+				break
+			}
+		}
+	}
+
+	m.confirm = confirmState{
+		active:   true,
+		message:  fmt.Sprintf("Whitelist %s? [y/n]", label),
+		warnings: warnings,
+		onYes: func() {
+			m.agentPool.GrayRemove(name, model)
+			m.addToast(label + " whitelisted")
+		},
+	}
+}
+
+// updateConfirm handles keys during an active confirm prompt.
+func (m TUIModel) updateConfirm(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	switch msg.String() {
+	case "y":
+		if m.confirm.onYes != nil {
+			m.confirm.onYes()
+		}
+		m.confirm = confirmState{}
+	case "n", "esc":
+		m.confirm = confirmState{}
+	}
+	return m, nil
+}
+
+func (m *TUIModel) addToast(msg string) {
+	m.toasts = append(m.toasts, toast{message: msg, expiry: time.Now().Add(5 * time.Second)})
+}
+
+func (m *TUIModel) pruneToasts() {
+	now := time.Now()
+	var live []toast
+	for _, t := range m.toasts {
+		if t.expiry.After(now) {
+			live = append(live, t)
+		}
+	}
+	m.toasts = live
 }
 
 func (m *TUIModel) scrollDown(n int) {
@@ -576,6 +825,8 @@ func (m TUIModel) View() string {
 	helpKeys := "tab: switch [%s]  ↑↓/jk: scroll  g/G: top/bottom  p: pause  q: quit"
 	if m.taskCtrl != nil && m.focusedPanel == panelTasks {
 		helpKeys = "tab: switch [%s]  ↑↓/jk: cursor  x: cancel  R: requeue  r: runner  q: quit"
+	} else if m.focusedPanel == panelAgents {
+		helpKeys = "tab: switch [%s]  ↑↓/jk: cursor  g: graylist  w: whitelist  q: quit"
 	}
 	help := helpStyle.Render(fmt.Sprintf("  "+helpKeys, focusHint))
 
@@ -785,34 +1036,99 @@ func (m TUIModel) renderLogContent(panelHeight int) string {
 func (m TUIModel) renderAgentContent(panelHeight int) string {
 	var b strings.Builder
 
+	// Toasts at the top
+	for _, t := range m.toasts {
+		b.WriteString(lipgloss.NewStyle().Foreground(lipgloss.Color("214")).Render("  " + t.message))
+		b.WriteString("\n")
+	}
+
 	b.WriteString(headerStyle.Render("AGENTS"))
 	b.WriteString("\n")
 
 	stats := m.agentStats()
+	agents := m.orderedAgents()
+	showCursor := m.focusedPanel == panelAgents
 
-	if m.agentPool != nil && len(m.agentPool.Agents) > 0 {
-		for _, a := range m.agentPool.Agents {
-			s := stats[a.Name]
-			status := dimStyle.Render("idle")
-			if s.Running > 0 {
-				status = runStyle.Render("running")
-			}
-			b.WriteString(fmt.Sprintf("  %-12s %d skills  %d hooks  %s\n", a.Name, a.Skills, a.Hooks, status))
-			b.WriteString(fmt.Sprintf("    %s%d done  %d fail  %s%s\n",
-				"", s.Done, s.Failed,
-				formatCompactTokens(s.Tokens), ""))
-			delete(stats, a.Name)
+	for i, name := range agents {
+		s := stats[name]
+
+		// cursor prefix
+		prefix := " "
+		if showCursor && i == m.agentCursor {
+			prefix = cursorStyle.Render(">")
 		}
-	}
 
-	// show runners not in ANCC (stats-only)
-	for name, s := range stats {
+		// status indicator
+		indicator := doneStyle.Render("●") // green = active
+		if m.agentPool != nil {
+			model := ""
+			if m.agentPool.Profiles != nil {
+				if p, ok := m.agentPool.Profiles[name]; ok {
+					model = p.Model
+				}
+			}
+			if m.agentPool.IsBlacklisted != nil && m.agentPool.IsBlacklisted(name) {
+				indicator = failedStyle.Render("✕") // red = blacklisted
+			} else if m.agentPool.IsGraylisted != nil && m.agentPool.IsGraylisted(name, model) {
+				indicator = lipgloss.NewStyle().Foreground(lipgloss.Color("214")).Render("○") // yellow = graylisted
+			}
+		}
+
+		// runtime status
 		status := dimStyle.Render("idle")
 		if s.Running > 0 {
 			status = runStyle.Render("running")
 		}
-		b.WriteString(fmt.Sprintf("  %-12s %s\n", name, status))
-		b.WriteString(fmt.Sprintf("    %d done  %d fail  %s\n", s.Done, s.Failed, formatCompactTokens(s.Tokens)))
+
+		// tags
+		var tags []string
+		if m.agentPool != nil && m.agentPool.Profiles != nil {
+			if p, ok := m.agentPool.Profiles[name]; ok {
+				if p.Free {
+					tags = append(tags, dimStyle.Render("[free]"))
+				}
+				if p.Tier > 0 {
+					tags = append(tags, dimStyle.Render(fmt.Sprintf("[tier-%d]", p.Tier)))
+				}
+				if p.FallbackOnly {
+					tags = append(tags, dimStyle.Render("[fallback]"))
+				}
+			}
+		}
+		tagStr := ""
+		if len(tags) > 0 {
+			tagStr = " " + strings.Join(tags, " ")
+		}
+
+		// skills count from ANCC
+		skillStr := ""
+		if m.agentPool != nil {
+			for _, a := range m.agentPool.Agents {
+				if a.Name == name && a.Skills > 0 {
+					skillStr = dimStyle.Render(fmt.Sprintf("%d skills", a.Skills))
+					break
+				}
+			}
+		}
+
+		b.WriteString(fmt.Sprintf("%s %s %-10s %s%s\n", prefix, indicator, name, status, tagStr))
+		statLine := fmt.Sprintf("    %d done  %d fail  %s", s.Done, s.Failed, formatCompactTokens(s.Tokens))
+		if skillStr != "" {
+			statLine += "  " + skillStr
+		}
+		b.WriteString(statLine + "\n")
+	}
+
+	// Confirm prompt at bottom of agent panel
+	if m.confirm.active {
+		b.WriteString("\n")
+		for _, w := range m.confirm.warnings {
+			b.WriteString(lipgloss.NewStyle().Foreground(lipgloss.Color("214")).Render("  ⚠ " + w))
+			b.WriteString("\n")
+		}
+		b.WriteString(headerStyle.Render("  " + m.confirm.message))
+		b.WriteString("\n")
+		return b.String()
 	}
 
 	// Quota section
@@ -842,9 +1158,6 @@ func (m TUIModel) renderAgentContent(panelHeight int) string {
 			}
 			b.WriteString(fmt.Sprintf("  %-14s %s\n", q.Provider, info))
 		}
-	} else {
-		b.WriteString("\n")
-		b.WriteString(dimStyle.Render("  quotas: unavailable"))
 	}
 
 	return b.String()
