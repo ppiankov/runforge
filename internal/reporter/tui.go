@@ -73,9 +73,30 @@ var (
 			BorderForeground(lipgloss.Color("8")) // gray
 
 	logErrorStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("9")) // red for secret/error lines
+	cursorStyle   = lipgloss.NewStyle().Foreground(lipgloss.Color("14")).Bold(true)
+	overlayStyle  = lipgloss.NewStyle().
+			Border(lipgloss.RoundedBorder()).
+			BorderForeground(lipgloss.Color("11")).
+			Padding(0, 1)
+	overlaySelStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("14")).Bold(true)
 )
 
 type tickMsg time.Time
+
+// TaskControl holds callbacks for interactive task management.
+type TaskControl struct {
+	CancelTask  func(id string)
+	RequeueTask func(id, runner string)
+	Runners     []string // available runner names for picker
+}
+
+// overlayState tracks the runner picker modal.
+type overlayState struct {
+	active  bool
+	taskID  string
+	cursor  int
+	runners []string
+}
 
 // TUIModel is the Bubbletea model for tokencontrol live display.
 type TUIModel struct {
@@ -92,6 +113,11 @@ type TUIModel struct {
 	height       int
 	done         bool // set when scheduler finishes
 
+	// Task cursor for interactive control
+	taskCursor int
+	taskCtrl   *TaskControl
+	overlay    overlayState
+
 	// Log panel state
 	logPath       string   // path to run.log; empty = no log panel
 	logLines      []string // ring buffer of log lines
@@ -106,7 +132,7 @@ type TUIModel struct {
 
 // NewTUIModel creates a new TUI model. When logPath is non-empty, a split layout
 // is shown with task panel + bottom panel (log/agents, Tab-switchable).
-func NewTUIModel(graph *task.Graph, getResults func() map[string]*task.TaskResult, cancelRun func(), logPath string, startTime time.Time, agentPool *AgentPoolInfo) TUIModel {
+func NewTUIModel(graph *task.Graph, getResults func() map[string]*task.TaskResult, cancelRun func(), logPath string, startTime time.Time, agentPool *AgentPoolInfo, taskCtrl *TaskControl) TUIModel {
 	return TUIModel{
 		graph:         graph,
 		getResults:    getResults,
@@ -116,6 +142,7 @@ func NewTUIModel(graph *task.Graph, getResults func() map[string]*task.TaskResul
 		logPath:       logPath,
 		logAutoScroll: true,
 		agentPool:     agentPool,
+		taskCtrl:      taskCtrl,
 	}
 }
 
@@ -134,6 +161,11 @@ func tickCmd() tea.Cmd {
 func (m TUIModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.KeyMsg:
+		// Overlay intercepts all keys when active.
+		if m.overlay.active {
+			return m.updateOverlay(msg)
+		}
+
 		switch msg.String() {
 		case "q", "ctrl+c":
 			if m.cancelRun != nil {
@@ -157,6 +189,8 @@ func (m TUIModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if m.focusedPanel == panelLogs && m.showBottomPanel() {
 				m.logAutoScroll = false
 				m.logScrollDown(1)
+			} else if m.focusedPanel == panelTasks {
+				m.taskCursorDown()
 			} else {
 				m.scrollDown(1)
 			}
@@ -165,6 +199,8 @@ func (m TUIModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if m.focusedPanel == panelLogs && m.showBottomPanel() {
 				m.logAutoScroll = false
 				m.logScrollUp(1)
+			} else if m.focusedPanel == panelTasks {
+				m.taskCursorUp()
 			} else {
 				m.scrollUp(1)
 			}
@@ -175,6 +211,7 @@ func (m TUIModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.logScroll = 0
 			} else {
 				m.scrollOffset = 0
+				m.taskCursor = 0
 			}
 
 		case "G", "end":
@@ -183,6 +220,10 @@ func (m TUIModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.logScroll = m.maxLogScroll()
 			} else {
 				m.scrollOffset = m.maxScroll()
+				total := len(m.buildTaskLines())
+				if total > 0 {
+					m.taskCursor = total - 1
+				}
 			}
 
 		case "pgdown":
@@ -202,6 +243,52 @@ func (m TUIModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			} else {
 				m.scrollUp(m.visibleTasks())
 			}
+
+		case "x":
+			// Cancel running task
+			if m.focusedPanel == panelTasks && m.taskCtrl != nil {
+				if id := m.cursorTaskID(); id != "" {
+					if res := m.results[id]; res != nil && res.State == task.StateRunning {
+						m.taskCtrl.CancelTask(id)
+					}
+				}
+			}
+
+		case "R":
+			// Requeue failed task with same runner
+			if m.focusedPanel == panelTasks && m.taskCtrl != nil {
+				if id := m.cursorTaskID(); id != "" {
+					if res := m.results[id]; res != nil {
+						switch res.State {
+						case task.StateFailed, task.StateSkipped, task.StateRateLimited:
+							m.taskCtrl.RequeueTask(id, "")
+						}
+					}
+				}
+			}
+
+		case "r":
+			// Open runner picker for queued/failed task
+			if m.focusedPanel == panelTasks && m.taskCtrl != nil && len(m.taskCtrl.Runners) > 0 {
+				if id := m.cursorTaskID(); id != "" {
+					res := m.results[id]
+					canPick := res == nil // pending (no result yet)
+					if res != nil {
+						switch res.State {
+						case task.StateFailed, task.StateSkipped, task.StateRateLimited,
+							task.StatePending, task.StateReady:
+							canPick = true
+						}
+					}
+					if canPick {
+						m.overlay = overlayState{
+							active:  true,
+							taskID:  id,
+							runners: m.taskCtrl.Runners,
+						}
+					}
+				}
+			}
 		}
 
 	case tickMsg:
@@ -218,6 +305,63 @@ func (m TUIModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	}
 
 	return m, nil
+}
+
+// updateOverlay handles keys when the runner picker is active.
+func (m TUIModel) updateOverlay(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	switch msg.String() {
+	case "esc", "q":
+		m.overlay.active = false
+	case "j", "down":
+		if m.overlay.cursor < len(m.overlay.runners)-1 {
+			m.overlay.cursor++
+		}
+	case "k", "up":
+		if m.overlay.cursor > 0 {
+			m.overlay.cursor--
+		}
+	case "enter":
+		if m.overlay.cursor < len(m.overlay.runners) && m.taskCtrl != nil {
+			runner := m.overlay.runners[m.overlay.cursor]
+			m.taskCtrl.RequeueTask(m.overlay.taskID, runner)
+		}
+		m.overlay.active = false
+	}
+	return m, nil
+}
+
+// cursorTaskID returns the task ID at the current cursor position.
+func (m TUIModel) cursorTaskID() string {
+	ids := m.buildTaskIDs()
+	if m.taskCursor >= 0 && m.taskCursor < len(ids) {
+		return ids[m.taskCursor]
+	}
+	return ""
+}
+
+func (m *TUIModel) taskCursorDown() {
+	total := len(m.buildTaskIDs())
+	if total == 0 {
+		return
+	}
+	if m.taskCursor < total-1 {
+		m.taskCursor++
+	}
+	// auto-scroll to keep cursor visible
+	vis := m.visibleTasks()
+	if m.taskCursor >= m.scrollOffset+vis {
+		m.scrollOffset = m.taskCursor - vis + 1
+	}
+}
+
+func (m *TUIModel) taskCursorUp() {
+	if m.taskCursor > 0 {
+		m.taskCursor--
+	}
+	// auto-scroll to keep cursor visible
+	if m.taskCursor < m.scrollOffset {
+		m.scrollOffset = m.taskCursor
+	}
 }
 
 func (m *TUIModel) scrollDown(n int) {
@@ -411,6 +555,11 @@ func (m TUIModel) View() string {
 
 	combined := lipgloss.JoinVertical(lipgloss.Left, taskPanel, bottomPanel)
 
+	// Overlay runner picker on top of combined view if active
+	if m.overlay.active {
+		combined = m.renderWithOverlay(combined)
+	}
+
 	// Help line below both panels
 	focusHint := "tasks"
 	switch m.focusedPanel {
@@ -419,9 +568,11 @@ func (m TUIModel) View() string {
 	case panelAgents:
 		focusHint = "agents"
 	}
-	help := helpStyle.Render(fmt.Sprintf(
-		"  tab: switch [%s]  ↑↓/jk: scroll  g/G: top/bottom  p: pause  q: quit",
-		focusHint))
+	helpKeys := "tab: switch [%s]  ↑↓/jk: scroll  g/G: top/bottom  p: pause  q: quit"
+	if m.taskCtrl != nil && m.focusedPanel == panelTasks {
+		helpKeys = "tab: switch [%s]  ↑↓/jk: cursor  x: cancel  R: requeue  r: runner  q: quit"
+	}
+	help := helpStyle.Render(fmt.Sprintf("  "+helpKeys, focusHint))
 
 	return combined + "\n" + help
 }
@@ -509,7 +660,11 @@ func (m TUIModel) viewSinglePanel() string {
 		b.WriteString("\n")
 	}
 
-	b.WriteString(helpStyle.Render("  ↑↓/jk: scroll  g/G: top/bottom  p: pause  q: quit"))
+	if m.taskCtrl != nil {
+		b.WriteString(helpStyle.Render("  ↑↓/jk: cursor  x: cancel  R: requeue  r: runner  p: pause  q: quit"))
+	} else {
+		b.WriteString(helpStyle.Render("  ↑↓/jk: scroll  g/G: top/bottom  p: pause  q: quit"))
+	}
 
 	return b.String()
 }
@@ -722,21 +877,21 @@ func (m TUIModel) agentStats() map[string]agentStat {
 	return stats
 }
 
-func (m TUIModel) buildTaskLines() []string {
-	type entry struct {
-		id    string
-		state task.TaskState
-		res   *task.TaskResult
-		t     *task.Task
-	}
+type taskEntry struct {
+	id    string
+	state task.TaskState
+	res   *task.TaskResult
+	t     *task.Task
+}
 
-	// collect and sort: failed → running → completed → rate-limited → queued
-	var failed, running, done, rl, queued []entry
+// sortedTaskEntries returns tasks in display order: failed → running → completed → rate-limited → queued.
+func (m TUIModel) sortedTaskEntries() []taskEntry {
+	var failed, running, done, rl, queued []taskEntry
 
 	for _, id := range m.graph.Order() {
 		t := m.graph.Task(id)
 		res := m.results[id]
-		e := entry{id: id, t: t, res: res}
+		e := taskEntry{id: id, t: t, res: res}
 
 		if res == nil {
 			e.state = task.StatePending
@@ -759,25 +914,54 @@ func (m TUIModel) buildTaskLines() []string {
 		}
 	}
 
+	var all []taskEntry
+	all = append(all, failed...)
+	all = append(all, running...)
+	all = append(all, done...)
+	all = append(all, rl...)
+	all = append(all, queued...)
+	return all
+}
+
+// buildTaskIDs returns task IDs in display order.
+func (m TUIModel) buildTaskIDs() []string {
+	entries := m.sortedTaskEntries()
+	ids := make([]string, len(entries))
+	for i, e := range entries {
+		ids[i] = e.id
+	}
+	return ids
+}
+
+func (m TUIModel) buildTaskLines() []string {
+	entries := m.sortedTaskEntries()
 	spinner := spinnerChars[m.frame%len(spinnerChars)]
-	var lines []string
+	lines := make([]string, 0, len(entries))
 
-	for _, e := range failed {
-		lines = append(lines, m.fmtFailed(e.res, e.t))
-	}
-	for _, e := range running {
-		lines = append(lines, m.fmtRunning(e.res, e.t, spinner))
-	}
-	for _, e := range done {
-		lines = append(lines, m.fmtDone(e.res, e.t))
-	}
-	for _, e := range rl {
-		lines = append(lines, m.fmtRateLimited(e.res, e.t))
-	}
-	for _, e := range queued {
-		lines = append(lines, m.fmtQueued(e.t))
-	}
+	showCursor := m.focusedPanel == panelTasks && m.taskCtrl != nil
 
+	for i, e := range entries {
+		var line string
+		switch {
+		case e.res == nil || e.state == task.StatePending || e.state == task.StateReady:
+			line = m.fmtQueued(e.t)
+		case e.state == task.StateFailed || e.state == task.StateSkipped:
+			line = m.fmtFailed(e.res, e.t)
+		case e.state == task.StateRunning:
+			line = m.fmtRunning(e.res, e.t, spinner)
+		case e.state == task.StateCompleted:
+			line = m.fmtDone(e.res, e.t)
+		case e.state == task.StateRateLimited:
+			line = m.fmtRateLimited(e.res, e.t)
+		default:
+			line = m.fmtQueued(e.t)
+		}
+
+		if showCursor && i == m.taskCursor {
+			line = cursorStyle.Render(">") + line[1:] // replace leading space with cursor
+		}
+		lines = append(lines, line)
+	}
 	return lines
 }
 
@@ -901,6 +1085,46 @@ func (m TUIModel) summaryFooter() string {
 	}
 
 	return dimStyle.Render("  " + strings.Join(parts, "  "))
+}
+
+// renderWithOverlay composites the runner picker over the main view.
+func (m TUIModel) renderWithOverlay(base string) string {
+	var b strings.Builder
+	b.WriteString(fmt.Sprintf("Select runner for %s:", m.overlay.taskID))
+	b.WriteString("\n")
+	for i, r := range m.overlay.runners {
+		prefix := "  "
+		if i == m.overlay.cursor {
+			prefix = "> "
+			b.WriteString(overlaySelStyle.Render(prefix + r))
+		} else {
+			b.WriteString(prefix + r)
+		}
+		b.WriteString("\n")
+	}
+	b.WriteString(dimStyle.Render("enter: select  esc: cancel"))
+
+	overlay := overlayStyle.Render(b.String())
+
+	// Place overlay at top-right of the view
+	lines := strings.Split(base, "\n")
+	olLines := strings.Split(overlay, "\n")
+
+	// Start overlay at row 2 (below header)
+	startRow := 2
+	for i, ol := range olLines {
+		row := startRow + i
+		if row < len(lines) {
+			// Right-align: pad existing line and append overlay
+			padding := m.width - lipgloss.Width(lines[row]) - lipgloss.Width(ol) - 2
+			if padding < 1 {
+				padding = 1
+			}
+			lines[row] = lines[row] + strings.Repeat(" ", padding) + ol
+		}
+	}
+
+	return strings.Join(lines, "\n")
 }
 
 // repoShort extracts the repo name from "owner/repo" format.

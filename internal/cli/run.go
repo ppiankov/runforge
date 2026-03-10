@@ -12,6 +12,7 @@ import (
 	"os/exec"
 	"os/signal"
 	"path/filepath"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -704,7 +705,19 @@ func executeRun(cfg execRunConfig) (*execRunResult, error) {
 			Agents:    anccAgents,
 			GetQuotas: qCache.get,
 		}
-		tuiModel := reporter.NewTUIModel(cfg.graph, sched.Results, cancel, logPath, start, agentPool)
+		// Collect runner names for interactive picker.
+		var runnerNames []string
+		for name := range runners {
+			runnerNames = append(runnerNames, name)
+		}
+		sort.Strings(runnerNames)
+
+		taskCtrl := &reporter.TaskControl{
+			CancelTask:  sched.CancelTask,
+			RequeueTask: sched.RequeueTask,
+			Runners:     runnerNames,
+		}
+		tuiModel := reporter.NewTUIModel(cfg.graph, sched.Results, cancel, logPath, start, agentPool, taskCtrl)
 		tuiProgram = tea.NewProgram(tuiModel, tea.WithAltScreen())
 		go func() {
 			if _, err := tuiProgram.Run(); err != nil {

@@ -34,6 +34,11 @@ type Scheduler struct {
 	inflight    atomic.Int64 // tracks tasks enqueued or executing
 	doneCh      chan struct{}
 	doneOnce    sync.Once
+
+	// Per-task cancel support for interactive control.
+	work       chan string
+	taskCancel map[string]context.CancelFunc
+	finished   atomic.Bool // true after Run() exits
 }
 
 // NewScheduler creates a scheduler for the given task graph.
@@ -47,9 +52,10 @@ func NewScheduler(graph *Graph, cfg SchedulerConfig) *Scheduler {
 	}
 
 	return &Scheduler{
-		cfg:     cfg,
-		graph:   graph,
-		results: results,
+		cfg:        cfg,
+		graph:      graph,
+		results:    results,
+		taskCancel: make(map[string]context.CancelFunc),
 	}
 }
 
@@ -58,6 +64,7 @@ func NewScheduler(graph *Graph, cfg SchedulerConfig) *Scheduler {
 func (s *Scheduler) Run(ctx context.Context) map[string]*TaskResult {
 	var wg sync.WaitGroup
 	work := make(chan string, len(s.graph.Tasks()))
+	s.work = work
 	s.doneCh = make(chan struct{})
 
 	// start workers
@@ -104,6 +111,7 @@ func (s *Scheduler) Run(ctx context.Context) map[string]*TaskResult {
 
 	// wait for all tasks to reach terminal state
 	<-s.doneCh
+	s.finished.Store(true)
 	close(work)
 	wg.Wait()
 
@@ -139,6 +147,67 @@ func (s *Scheduler) SetRunnerUsed(id, runner string) {
 	s.mu.Unlock()
 }
 
+// CancelTask cancels a running task by invoking its per-task context cancel.
+// No-op if the task is not running.
+func (s *Scheduler) CancelTask(id string) {
+	s.mu.Lock()
+	cancel, ok := s.taskCancel[id]
+	r := s.results[id]
+	isRunning := r != nil && r.State == StateRunning
+	s.mu.Unlock()
+
+	if ok && isRunning {
+		cancel()
+	}
+}
+
+// RequeueTask resets a failed/skipped/rate-limited task to pending and
+// re-enqueues it for execution. Optionally overrides the runner.
+// No-op if the task is running, completed, or the scheduler has finished.
+func (s *Scheduler) RequeueTask(id, runner string) {
+	if s.finished.Load() {
+		return
+	}
+
+	s.mu.Lock()
+	r, ok := s.results[id]
+	if !ok {
+		s.mu.Unlock()
+		return
+	}
+	// Only requeue terminal non-success states.
+	switch r.State {
+	case StateFailed, StateSkipped, StateRateLimited:
+		// ok to requeue
+	default:
+		s.mu.Unlock()
+		return
+	}
+
+	// Reset result state.
+	r.State = StateReady
+	r.Error = ""
+	r.StartedAt = time.Time{}
+	r.EndedAt = time.Time{}
+	r.Duration = 0
+	r.Attempts = nil
+	r.FalsePositive = false
+	r.RunnerUsed = ""
+
+	// Apply runner override to the graph task.
+	if runner != "" {
+		if t := s.graph.Task(id); t != nil {
+			t.Runner = runner
+		}
+	}
+	s.mu.Unlock()
+	s.notify(id)
+
+	// Re-enqueue via goroutine to avoid blocking TUI if channel is full.
+	s.inflight.Add(1)
+	go func() { s.work <- id }()
+}
+
 func (s *Scheduler) execute(ctx context.Context, id string, work chan<- string) {
 	task := s.graph.Task(id)
 	if task == nil {
@@ -146,7 +215,10 @@ func (s *Scheduler) execute(ctx context.Context, id string, work chan<- string) 
 		return
 	}
 
+	// Create per-task cancellable context for interactive control.
+	taskCtx, taskCancel := context.WithCancel(ctx)
 	s.mu.Lock()
+	s.taskCancel[id] = taskCancel
 	s.results[id].State = StateRunning
 	s.results[id].StartedAt = time.Now()
 	s.mu.Unlock()
@@ -160,11 +232,13 @@ func (s *Scheduler) execute(ctx context.Context, id string, work chan<- string) 
 	}
 	outputDir := fmt.Sprintf("%s/%s", s.cfg.RunDir, id)
 
-	result := s.cfg.ExecFn(ctx, task, repoDir, outputDir)
+	result := s.cfg.ExecFn(taskCtx, task, repoDir, outputDir)
+	taskCancel() // release resources
 
 	s.mu.Lock()
 	result.TaskID = id
 	s.results[id] = result
+	delete(s.taskCancel, id)
 	s.mu.Unlock()
 	s.notify(id)
 
