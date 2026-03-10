@@ -216,10 +216,8 @@ func (lr *LiveReporter) buildLines(results map[string]*task.TaskResult) []string
 
 func (lr *LiveReporter) formatFailed(res *task.TaskResult) string {
 	t := lr.graph.Task(res.TaskID)
-	title := ""
-	if t != nil {
-		title = t.Title
-	}
+	trail := cascadeTrail(res)
+	repo := repoShort(t)
 	icon := "✗"
 	label := "FAILED"
 	if res.State == task.StateSkipped {
@@ -230,53 +228,45 @@ func (lr *LiveReporter) formatFailed(res *task.TaskResult) string {
 	if res.ConnectivityError != "" {
 		errMsg = res.ConnectivityError
 	}
-	if len(errMsg) > 120 {
-		errMsg = errMsg[:120] + "..."
+	if len(errMsg) > 30 {
+		errMsg = errMsg[:30] + "..."
 	}
-	return fmt.Sprintf("  %s%s %-10s %-25s %-30s %s%s",
-		lr.c(colorRed), icon, label, res.TaskID, title, errMsg, lr.c(colorReset))
+	return fmt.Sprintf("  %s%s %-10s %-20s %-12s %-12s %s%s",
+		lr.c(colorRed), icon, label, res.TaskID, trail, repo, errMsg, lr.c(colorReset))
 }
 
 func (lr *LiveReporter) formatRunning(res *task.TaskResult, spinner string) string {
 	t := lr.graph.Task(res.TaskID)
-	title := ""
-	runnerTag := ""
-	if t != nil {
-		title = t.Title
-		if t.Runner != "" {
-			runnerTag = " [" + t.Runner + "]"
-		}
+	rn := res.RunnerUsed
+	if rn == "" && t != nil {
+		rn = t.Runner
 	}
+	repo := repoShort(t)
 	elapsed := time.Since(res.StartedAt).Truncate(time.Second)
-	return fmt.Sprintf("  %s%s %-10s %-25s %-30s %s%s%s",
-		lr.c(colorCyan), spinner, "running", res.TaskID, title, elapsed, runnerTag, lr.c(colorReset))
+	return fmt.Sprintf("  %s%s %-10s %-20s %-12s %-12s %s%s",
+		lr.c(colorCyan), spinner, "running", res.TaskID, rn, repo, elapsed, lr.c(colorReset))
 }
 
 func (lr *LiveReporter) formatCompleted(res *task.TaskResult) string {
 	t := lr.graph.Task(res.TaskID)
-	title := ""
-	if t != nil {
-		title = t.Title
+	rn := res.RunnerUsed
+	if rn != "" && len(res.Attempts) > 1 && len(uniqueAttemptRunners(res.Attempts)) > 1 {
+		rn = "via " + rn
 	}
+	repo := repoShort(t)
 	dur := res.Duration.Truncate(time.Second)
-	suffix := ""
-	if res.RunnerUsed != "" {
-		if len(res.Attempts) > 1 {
-			suffix = " [via " + res.RunnerUsed + "]"
-		} else {
-			suffix = " [" + res.RunnerUsed + "]"
-		}
+	tokens := ""
+	if res.TokensUsed != nil && res.TokensUsed.TotalTokens > 0 {
+		tokens = formatCompactTokens(res.TokensUsed.TotalTokens)
 	}
-	return fmt.Sprintf("  %s✓ %-10s %-25s %-30s %s%s%s",
-		lr.c(colorGreen), "done", res.TaskID, title, dur, suffix, lr.c(colorReset))
+	return fmt.Sprintf("  %s✓ %-10s %-20s %-12s %-12s %-8s %s%s",
+		lr.c(colorGreen), "done", res.TaskID, rn, repo, dur, tokens, lr.c(colorReset))
 }
 
 func (lr *LiveReporter) formatRateLimited(res *task.TaskResult) string {
 	t := lr.graph.Task(res.TaskID)
-	title := ""
-	if t != nil {
-		title = t.Title
-	}
+	rn := res.RunnerUsed
+	repo := repoShort(t)
 	info := "rate limit"
 	if !res.ResetsAt.IsZero() {
 		remaining := time.Until(res.ResetsAt).Truncate(time.Minute)
@@ -284,22 +274,19 @@ func (lr *LiveReporter) formatRateLimited(res *task.TaskResult) string {
 			info = fmt.Sprintf("resets in %s", remaining)
 		}
 	}
-	return fmt.Sprintf("  %s⏸ %-10s %-25s %-30s %s%s",
-		lr.c(colorYellow), "rate-limit", res.TaskID, title, info, lr.c(colorReset))
+	return fmt.Sprintf("  %s⏸ %-10s %-20s %-12s %-12s %s%s",
+		lr.c(colorYellow), "rate-limit", res.TaskID, rn, repo, info, lr.c(colorReset))
 }
 
 func (lr *LiveReporter) formatQueued(res *task.TaskResult) string {
 	t := lr.graph.Task(res.TaskID)
-	title := ""
-	if t != nil {
-		title = t.Title
-	}
+	repo := repoShort(t)
 	dep := ""
 	if t != nil && len(t.DependsOn) > 0 {
 		dep = "waiting: " + strings.Join(t.DependsOn, ", ")
 	}
-	return fmt.Sprintf("  %s─ %-10s %-25s %-30s %s%s",
-		lr.c(colorDim), "queued", res.TaskID, title, dep, lr.c(colorReset))
+	return fmt.Sprintf("  %s─ %-10s %-20s %-12s %-12s %s%s",
+		lr.c(colorDim), "queued", res.TaskID, "", repo, dep, lr.c(colorReset))
 }
 
 func (lr *LiveReporter) progressLine(done, running, failed, rateLimited, queued int) string {

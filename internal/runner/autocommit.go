@@ -47,6 +47,8 @@ func AutoCommit(ctx context.Context, repoDir string, t *task.Task) (bool, error)
 }
 
 // changedFiles returns file paths from git status --porcelain.
+// Untracked files (status ??) are filtered through git check-ignore to avoid
+// attempting to add files covered by .gitignore.
 func changedFiles(ctx context.Context, repoDir string) ([]string, error) {
 	cmd := exec.CommandContext(ctx, "git", "status", "--porcelain")
 	cmd.Dir = repoDir
@@ -56,22 +58,44 @@ func changedFiles(ctx context.Context, repoDir string) ([]string, error) {
 	}
 
 	var files []string
+	var untrackedFiles []string
 	for _, line := range strings.Split(strings.TrimSpace(string(out)), "\n") {
 		if len(line) < 4 {
 			continue
 		}
 		// porcelain format: XY <space> filename
 		// columns 0-1 are status, column 2 is space, column 3+ is filename
+		status := line[:2]
 		file := strings.TrimSpace(line[2:])
 		// handle renamed files: "old -> new"
 		if idx := strings.Index(file, " -> "); idx >= 0 {
 			file = file[idx+4:]
 		}
-		if file != "" {
+		if file == "" {
+			continue
+		}
+		if status == "??" {
+			untrackedFiles = append(untrackedFiles, file)
+		} else {
 			files = append(files, file)
 		}
 	}
+
+	// filter untracked files: exclude those covered by .gitignore
+	for _, f := range untrackedFiles {
+		if !isGitIgnored(ctx, repoDir, f) {
+			files = append(files, f)
+		}
+	}
+
 	return files, nil
+}
+
+// isGitIgnored returns true if the file is covered by .gitignore.
+func isGitIgnored(ctx context.Context, repoDir, file string) bool {
+	cmd := exec.CommandContext(ctx, "git", "check-ignore", "-q", file)
+	cmd.Dir = repoDir
+	return cmd.Run() == nil // exit 0 = ignored, exit 1 = not ignored
 }
 
 // runGitCmd executes a git command in the given directory.

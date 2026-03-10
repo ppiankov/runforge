@@ -35,6 +35,7 @@ func RunWithCascade(
 	blacklist *runner.RunnerBlacklist,
 	graylist *runner.RunnerGraylist,
 	limiter *runner.ProviderLimiter,
+	onAttemptStart func(runner string),
 ) *task.TaskResult {
 	if len(runnerNames) == 0 {
 		return &task.TaskResult{
@@ -117,6 +118,9 @@ func RunWithCascade(
 			// capture HEAD before run so we can detect new commits
 			headBefore := gitHead(repoDir)
 
+			if onAttemptStart != nil {
+				onAttemptStart(name)
+			}
 			if limiter != nil {
 				limiter.Acquire(name)
 			}

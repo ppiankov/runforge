@@ -128,6 +128,16 @@ func (s *Scheduler) Results() map[string]*TaskResult {
 	return cp
 }
 
+// SetRunnerUsed updates the runner name on a running task's result.
+// Called from the cascade callback to make the active runner visible to the TUI.
+func (s *Scheduler) SetRunnerUsed(id, runner string) {
+	s.mu.Lock()
+	if r, ok := s.results[id]; ok {
+		r.RunnerUsed = runner
+	}
+	s.mu.Unlock()
+}
+
 func (s *Scheduler) execute(ctx context.Context, id string, work chan<- string) {
 	task := s.graph.Task(id)
 	if task == nil {

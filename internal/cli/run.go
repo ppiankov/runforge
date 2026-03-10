@@ -504,6 +504,9 @@ func executeRun(cfg execRunConfig) (*execRunResult, error) {
 	// inject commit instructions into all agent-bound prompts (safety net)
 	injectCommitInstructions(cfg.tasks, runners)
 
+	// Forward-declare scheduler so execFn closure can call SetRunnerUsed.
+	var sched *task.Scheduler
+
 	execFn := func(ctx context.Context, t *task.Task, repoDir, outputDir string) *task.TaskResult {
 		// acquire execution directory: worktree (parallel) or lock (serial)
 		var execDir string
@@ -564,7 +567,9 @@ func executeRun(cfg execRunConfig) (*execRunResult, error) {
 				EndedAt: time.Now(),
 			}
 		}
-		result := RunWithCascade(ctx, t, execDir, outputDir, runners, cascade, cfg.maxRuntime, cfg.maxRetries, blacklist, graylist, limiter)
+		result := RunWithCascade(ctx, t, execDir, outputDir, runners, cascade, cfg.maxRuntime, cfg.maxRetries, blacklist, graylist, limiter,
+			func(runnerName string) { sched.SetRunnerUsed(t.ID, runnerName) },
+		)
 
 		// auto-commit uncommitted changes for successful tasks
 		if result.State == task.StateCompleted && !cfg.noAutoCommit {
@@ -609,7 +614,6 @@ func executeRun(cfg execRunConfig) (*execRunResult, error) {
 
 	// run scheduler
 	start := time.Now()
-	var sched *task.Scheduler
 	sched = task.NewScheduler(cfg.graph, task.SchedulerConfig{
 		Workers:  cfg.workers,
 		ReposDir: cfg.reposDir,

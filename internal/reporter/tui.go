@@ -127,8 +127,8 @@ func (m *TUIModel) scrollUp(n int) {
 }
 
 func (m TUIModel) visibleTasks() int {
-	// header(2) + progress(1) + blank(1) + help(1) = 5 reserved lines
-	avail := m.height - 5
+	// header(1) + progress(1) + footer(1) + help(1) = 4 reserved lines
+	avail := m.height - 4
 	if avail < 3 {
 		return 3
 	}
@@ -219,8 +219,13 @@ func (m TUIModel) View() string {
 		b.WriteString("\n")
 	}
 
+	// footer: aggregate stats
+	footer := m.summaryFooter()
+	b.WriteString(footer)
+	b.WriteString("\n")
+
 	// pad to fill screen
-	used := 2 + (end - start) + 1 // header + progress + tasks + help
+	used := 2 + (end - start) + 2 // header + progress + tasks + footer + help
 	if start > 0 {
 		used++
 	}
@@ -297,42 +302,47 @@ func (m TUIModel) buildTaskLines() []string {
 }
 
 func (m TUIModel) fmtFailed(res *task.TaskResult, t *task.Task) string {
-	title := taskTitle(t)
 	icon := "✗"
 	label := "FAILED"
 	if res.State == task.StateSkipped {
 		icon = "⊘"
 		label = "skipped"
 	}
+	trail := cascadeTrail(res)
+	repo := repoShort(t)
 	errMsg := res.Error
-	if len(errMsg) > 40 {
-		errMsg = errMsg[:40] + "..."
+	if len(errMsg) > 30 {
+		errMsg = errMsg[:30] + "..."
 	}
-	return failedStyle.Render(fmt.Sprintf("  %s %-10s %-25s %-30s %s", icon, label, res.TaskID, title, errMsg))
+	return failedStyle.Render(fmt.Sprintf("  %s %-10s %-20s %-12s %-12s %s", icon, label, res.TaskID, trail, repo, errMsg))
 }
 
 func (m TUIModel) fmtRunning(res *task.TaskResult, t *task.Task, spinner string) string {
-	title := taskTitle(t)
-	runnerTag := ""
-	if t != nil && t.Runner != "" {
-		runnerTag = " [" + t.Runner + "]"
+	rn := res.RunnerUsed
+	if rn == "" && t != nil {
+		rn = t.Runner
 	}
+	repo := repoShort(t)
 	elapsed := time.Since(res.StartedAt).Truncate(time.Second)
-	return runStyle.Render(fmt.Sprintf("  %s %-10s %-25s %-30s %s%s", spinner, "running", res.TaskID, title, elapsed, runnerTag))
+	return runStyle.Render(fmt.Sprintf("  %s %-10s %-20s %-12s %-12s %s", spinner, "running", res.TaskID, rn, repo, elapsed))
 }
 
 func (m TUIModel) fmtDone(res *task.TaskResult, t *task.Task) string {
-	title := taskTitle(t)
 	dur := res.Duration.Truncate(time.Second)
-	suffix := ""
-	if res.RunnerUsed != "" && len(res.Attempts) > 1 {
-		suffix = " [via " + res.RunnerUsed + "]"
+	rn := res.RunnerUsed
+	if rn != "" && len(res.Attempts) > 1 && len(uniqueAttemptRunners(res.Attempts)) > 1 {
+		rn = "via " + rn
 	}
-	return doneStyle.Render(fmt.Sprintf("  ✓ %-10s %-25s %-30s %s%s", "done", res.TaskID, title, dur, suffix))
+	repo := repoShort(t)
+	tokens := ""
+	if res.TokensUsed != nil && res.TokensUsed.TotalTokens > 0 {
+		tokens = formatCompactTokens(res.TokensUsed.TotalTokens)
+	}
+	return doneStyle.Render(fmt.Sprintf("  ✓ %-10s %-20s %-12s %-12s %-8s %s", "done", res.TaskID, rn, repo, dur, tokens))
 }
 
 func (m TUIModel) fmtRateLimited(res *task.TaskResult, t *task.Task) string {
-	title := taskTitle(t)
+	repo := repoShort(t)
 	info := "rate limit"
 	if !res.ResetsAt.IsZero() {
 		remaining := time.Until(res.ResetsAt).Truncate(time.Minute)
@@ -340,11 +350,12 @@ func (m TUIModel) fmtRateLimited(res *task.TaskResult, t *task.Task) string {
 			info = fmt.Sprintf("resets in %s", remaining)
 		}
 	}
-	return rlStyle.Render(fmt.Sprintf("  ⏸ %-10s %-25s %-30s %s", "rate-limit", res.TaskID, title, info))
+	rn := res.RunnerUsed
+	return rlStyle.Render(fmt.Sprintf("  ⏸ %-10s %-20s %-12s %-12s %s", "rate-limit", res.TaskID, rn, repo, info))
 }
 
 func (m TUIModel) fmtQueued(t *task.Task) string {
-	title := taskTitle(t)
+	repo := repoShort(t)
 	dep := ""
 	if t != nil && len(t.DependsOn) > 0 {
 		dep = "waiting: " + strings.Join(t.DependsOn, ", ")
@@ -353,7 +364,7 @@ func (m TUIModel) fmtQueued(t *task.Task) string {
 	if t != nil {
 		id = t.ID
 	}
-	return dimStyle.Render(fmt.Sprintf("  ─ %-10s %-25s %-30s %s", "queued", id, title, dep))
+	return dimStyle.Render(fmt.Sprintf("  ─ %-10s %-20s %-12s %-12s %s", "queued", id, "", repo, dep))
 }
 
 func (m TUIModel) progressLine(done, running, failed, rateLimited, queued int) string {
@@ -376,9 +387,74 @@ func (m TUIModel) progressLine(done, running, failed, rateLimited, queued int) s
 	return fmt.Sprintf("  %s", strings.Join(parts, "  "))
 }
 
-func taskTitle(t *task.Task) string {
-	if t == nil {
+func (m TUIModel) summaryFooter() string {
+	total := len(m.graph.Order())
+	var completed int
+	var totalTokens int
+	runnerCounts := make(map[string]int)
+
+	for _, res := range m.results {
+		if res.State == task.StateCompleted {
+			completed++
+		}
+		if res.RunnerUsed != "" && (res.State == task.StateRunning || res.State == task.StateCompleted) {
+			runnerCounts[res.RunnerUsed]++
+		}
+		if res.TokensUsed != nil {
+			totalTokens += res.TokensUsed.TotalTokens
+		}
+	}
+
+	parts := []string{fmt.Sprintf("%d/%d tasks", completed, total)}
+
+	if totalTokens > 0 {
+		parts = append(parts, formatCompactTokens(totalTokens))
+	}
+
+	// runner distribution: sort for deterministic output
+	if len(runnerCounts) > 0 {
+		var rParts []string
+		for name, count := range runnerCounts {
+			rParts = append(rParts, fmt.Sprintf("%s\u00d7%d", name, count))
+		}
+		parts = append(parts, strings.Join(rParts, " "))
+	}
+
+	return dimStyle.Render("  " + strings.Join(parts, "  "))
+}
+
+// repoShort extracts the repo name from "owner/repo" format.
+func repoShort(t *task.Task) string {
+	if t == nil || t.Repo == "" {
 		return ""
 	}
-	return t.Title
+	if idx := strings.LastIndex(t.Repo, "/"); idx >= 0 {
+		return t.Repo[idx+1:]
+	}
+	return t.Repo
+}
+
+// cascadeTrail builds a runner trail from attempts: "codex→zai".
+func cascadeTrail(res *task.TaskResult) string {
+	if res == nil {
+		return ""
+	}
+	if len(res.Attempts) <= 1 {
+		if res.RunnerUsed != "" {
+			return res.RunnerUsed
+		}
+		if len(res.Attempts) == 1 {
+			return res.Attempts[0].Runner
+		}
+		return ""
+	}
+	seen := make(map[string]bool)
+	var trail []string
+	for _, a := range res.Attempts {
+		if !seen[a.Runner] {
+			seen[a.Runner] = true
+			trail = append(trail, a.Runner)
+		}
+	}
+	return strings.Join(trail, "→")
 }

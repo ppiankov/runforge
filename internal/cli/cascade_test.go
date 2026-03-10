@@ -51,7 +51,7 @@ func TestCascade_FirstSucceeds(t *testing.T) {
 
 	tk := &task.Task{ID: "test-1", Repo: "test/repo", Prompt: "do stuff"}
 	bl := runner.NewRunnerBlacklist()
-	result := RunWithCascade(context.Background(), tk, "/tmp", t.TempDir(), runners, []string{"codex", "zai"}, 5*time.Minute, 0, bl, nil, nil)
+	result := RunWithCascade(context.Background(), tk, "/tmp", t.TempDir(), runners, []string{"codex", "zai"}, 5*time.Minute, 0, bl, nil, nil, nil)
 
 	if result.State != task.StateCompleted {
 		t.Fatalf("expected completed, got %s", result.State)
@@ -77,7 +77,7 @@ func TestCascade_FirstRateLimited(t *testing.T) {
 
 	tk := &task.Task{ID: "test-2", Repo: "test/repo", Prompt: "do stuff"}
 	bl := runner.NewRunnerBlacklist()
-	result := RunWithCascade(context.Background(), tk, "/tmp", t.TempDir(), runners, []string{"codex", "zai"}, 5*time.Minute, 0, bl, nil, nil)
+	result := RunWithCascade(context.Background(), tk, "/tmp", t.TempDir(), runners, []string{"codex", "zai"}, 5*time.Minute, 0, bl, nil, nil, nil)
 
 	if result.State != task.StateCompleted {
 		t.Fatalf("expected completed, got %s", result.State)
@@ -102,7 +102,7 @@ func TestCascade_FirstFailed(t *testing.T) {
 
 	tk := &task.Task{ID: "test-3", Repo: "test/repo", Prompt: "do stuff"}
 	bl := runner.NewRunnerBlacklist()
-	result := RunWithCascade(context.Background(), tk, "/tmp", t.TempDir(), runners, []string{"codex", "zai"}, 5*time.Minute, 0, bl, nil, nil)
+	result := RunWithCascade(context.Background(), tk, "/tmp", t.TempDir(), runners, []string{"codex", "zai"}, 5*time.Minute, 0, bl, nil, nil, nil)
 
 	if result.State != task.StateCompleted {
 		t.Fatalf("expected completed, got %s", result.State)
@@ -124,7 +124,7 @@ func TestCascade_AllFail(t *testing.T) {
 
 	tk := &task.Task{ID: "test-4", Repo: "test/repo", Prompt: "do stuff"}
 	bl := runner.NewRunnerBlacklist()
-	result := RunWithCascade(context.Background(), tk, "/tmp", t.TempDir(), runners, []string{"codex", "zai"}, 5*time.Minute, 0, bl, nil, nil)
+	result := RunWithCascade(context.Background(), tk, "/tmp", t.TempDir(), runners, []string{"codex", "zai"}, 5*time.Minute, 0, bl, nil, nil, nil)
 
 	if result.State != task.StateFailed {
 		t.Fatalf("expected failed, got %s", result.State)
@@ -151,7 +151,7 @@ func TestCascade_BlacklistSkips(t *testing.T) {
 	bl.Block("codex", time.Now().Add(4*time.Hour))
 
 	tk := &task.Task{ID: "test-5", Repo: "test/repo", Prompt: "do stuff"}
-	result := RunWithCascade(context.Background(), tk, "/tmp", t.TempDir(), runners, []string{"codex", "zai"}, 5*time.Minute, 0, bl, nil, nil)
+	result := RunWithCascade(context.Background(), tk, "/tmp", t.TempDir(), runners, []string{"codex", "zai"}, 5*time.Minute, 0, bl, nil, nil, nil)
 
 	if result.State != task.StateCompleted {
 		t.Fatalf("expected completed, got %s", result.State)
@@ -177,7 +177,7 @@ func TestCascade_NoFallbacks(t *testing.T) {
 
 	tk := &task.Task{ID: "test-6", Repo: "test/repo", Prompt: "do stuff"}
 	bl := runner.NewRunnerBlacklist()
-	result := RunWithCascade(context.Background(), tk, "/tmp", t.TempDir(), runners, []string{"codex"}, 5*time.Minute, 0, bl, nil, nil)
+	result := RunWithCascade(context.Background(), tk, "/tmp", t.TempDir(), runners, []string{"codex"}, 5*time.Minute, 0, bl, nil, nil, nil)
 
 	if result.State != task.StateCompleted {
 		t.Fatalf("expected completed, got %s", result.State)
@@ -206,7 +206,7 @@ func TestCascade_AttemptsRecorded(t *testing.T) {
 
 	tk := &task.Task{ID: "test-7", Repo: "test/repo", Prompt: "do stuff"}
 	bl := runner.NewRunnerBlacklist()
-	result := RunWithCascade(context.Background(), tk, "/tmp", t.TempDir(), runners, []string{"codex", "zai", "claude-api"}, 5*time.Minute, 0, bl, nil, nil)
+	result := RunWithCascade(context.Background(), tk, "/tmp", t.TempDir(), runners, []string{"codex", "zai", "claude-api"}, 5*time.Minute, 0, bl, nil, nil, nil)
 
 	if result.State != task.StateCompleted {
 		t.Fatalf("expected completed, got %s", result.State)
@@ -247,7 +247,7 @@ func TestCascade_RateLimitBlocksForSubsequentTasks(t *testing.T) {
 
 	// first task triggers rate limit
 	tk1 := &task.Task{ID: "task-1", Repo: "test/repo", Prompt: "first"}
-	r1 := RunWithCascade(context.Background(), tk1, "/tmp", t.TempDir(), runners, []string{"codex", "zai"}, 5*time.Minute, 0, bl, nil, nil)
+	r1 := RunWithCascade(context.Background(), tk1, "/tmp", t.TempDir(), runners, []string{"codex", "zai"}, 5*time.Minute, 0, bl, nil, nil, nil)
 	if r1.State != task.StateCompleted {
 		t.Fatalf("task-1: expected completed, got %s", r1.State)
 	}
@@ -257,7 +257,7 @@ func TestCascade_RateLimitBlocksForSubsequentTasks(t *testing.T) {
 
 	// second task should skip codex entirely
 	tk2 := &task.Task{ID: "task-2", Repo: "test/repo", Prompt: "second"}
-	r2 := RunWithCascade(context.Background(), tk2, "/tmp", t.TempDir(), runners, []string{"codex", "zai"}, 5*time.Minute, 0, bl, nil, nil)
+	r2 := RunWithCascade(context.Background(), tk2, "/tmp", t.TempDir(), runners, []string{"codex", "zai"}, 5*time.Minute, 0, bl, nil, nil, nil)
 	if r2.State != task.StateCompleted {
 		t.Fatalf("task-2: expected completed, got %s", r2.State)
 	}
@@ -1127,7 +1127,7 @@ func TestCascade_RetryOnConnectivity(t *testing.T) {
 
 	tk := &task.Task{ID: "retry-1", Repo: "test/repo", Prompt: "do stuff"}
 	bl := runner.NewRunnerBlacklist()
-	result := RunWithCascade(context.Background(), tk, "/tmp", t.TempDir(), runners, []string{"codex"}, 5*time.Minute, 2, bl, nil, nil)
+	result := RunWithCascade(context.Background(), tk, "/tmp", t.TempDir(), runners, []string{"codex"}, 5*time.Minute, 2, bl, nil, nil, nil)
 
 	if result.State != task.StateCompleted {
 		t.Fatalf("expected completed after retry, got %s: %s", result.State, result.Error)
@@ -1168,7 +1168,7 @@ func TestCascade_RetryOnIdleTimeout(t *testing.T) {
 
 	tk := &task.Task{ID: "retry-2", Repo: "test/repo", Prompt: "do stuff"}
 	bl := runner.NewRunnerBlacklist()
-	result := RunWithCascade(context.Background(), tk, "/tmp", t.TempDir(), runners, []string{"codex"}, 5*time.Minute, 2, bl, nil, nil)
+	result := RunWithCascade(context.Background(), tk, "/tmp", t.TempDir(), runners, []string{"codex"}, 5*time.Minute, 2, bl, nil, nil, nil)
 
 	if result.State != task.StateCompleted {
 		t.Fatalf("expected completed after retry, got %s", result.State)
@@ -1196,7 +1196,7 @@ func TestCascade_NoRetryOnRealFailure(t *testing.T) {
 
 	tk := &task.Task{ID: "retry-3", Repo: "test/repo", Prompt: "do stuff"}
 	bl := runner.NewRunnerBlacklist()
-	result := RunWithCascade(context.Background(), tk, "/tmp", t.TempDir(), runners, []string{"codex", "zai"}, 5*time.Minute, 2, bl, nil, nil)
+	result := RunWithCascade(context.Background(), tk, "/tmp", t.TempDir(), runners, []string{"codex", "zai"}, 5*time.Minute, 2, bl, nil, nil, nil)
 
 	// should NOT retry codex — real failure, falls to zai
 	if calls != 1 {
@@ -1233,7 +1233,7 @@ func TestCascade_MaxRetriesExhausted(t *testing.T) {
 
 	tk := &task.Task{ID: "retry-4", Repo: "test/repo", Prompt: "do stuff"}
 	bl := runner.NewRunnerBlacklist()
-	result := RunWithCascade(context.Background(), tk, "/tmp", t.TempDir(), runners, []string{"codex", "zai"}, 5*time.Minute, 2, bl, nil, nil)
+	result := RunWithCascade(context.Background(), tk, "/tmp", t.TempDir(), runners, []string{"codex", "zai"}, 5*time.Minute, 2, bl, nil, nil, nil)
 
 	// codex called 3 times (initial + 2 retries), then falls to zai
 	if calls != 3 {
@@ -1268,7 +1268,7 @@ func TestCascade_NoRetryWhenDisabled(t *testing.T) {
 	tk := &task.Task{ID: "retry-5", Repo: "test/repo", Prompt: "do stuff"}
 	bl := runner.NewRunnerBlacklist()
 	// maxRetries=0 → no retries
-	result := RunWithCascade(context.Background(), tk, "/tmp", t.TempDir(), runners, []string{"codex"}, 5*time.Minute, 0, bl, nil, nil)
+	result := RunWithCascade(context.Background(), tk, "/tmp", t.TempDir(), runners, []string{"codex"}, 5*time.Minute, 0, bl, nil, nil, nil)
 
 	if calls != 1 {
 		t.Fatalf("with maxRetries=0, codex should be called once, got %d", calls)
@@ -1301,7 +1301,7 @@ func TestCascade_RetryAttemptsTracked(t *testing.T) {
 
 	tk := &task.Task{ID: "retry-6", Repo: "test/repo", Prompt: "do stuff"}
 	bl := runner.NewRunnerBlacklist()
-	result := RunWithCascade(context.Background(), tk, "/tmp", t.TempDir(), runners, []string{"codex"}, 5*time.Minute, 2, bl, nil, nil)
+	result := RunWithCascade(context.Background(), tk, "/tmp", t.TempDir(), runners, []string{"codex"}, 5*time.Minute, 2, bl, nil, nil, nil)
 
 	if result.State != task.StateCompleted {
 		t.Fatalf("expected completed, got %s", result.State)
@@ -1397,5 +1397,45 @@ func TestRetryBackoff(t *testing.T) {
 	}
 	if got := retryBackoff(3); got != 60*time.Second {
 		t.Errorf("retry 3 should clamp to last backoff (60s), got %v", got)
+	}
+}
+
+func TestCascade_OnAttemptStartCallback(t *testing.T) {
+	bl := runner.NewRunnerBlacklist()
+	tk := &task.Task{ID: "t1", Runner: "codex"}
+
+	var callbackRunners []string
+	callback := func(rn string) {
+		callbackRunners = append(callbackRunners, rn)
+	}
+
+	call := 0
+	runners := map[string]runner.Runner{
+		"codex": &mockRunner{name: "codex", result: func(t *task.Task) *task.TaskResult {
+			call++
+			if call == 1 {
+				return &task.TaskResult{TaskID: t.ID, State: task.StateFailed, Error: "failed"}
+			}
+			return completedResult(t.ID)
+		}},
+		"zai": &mockRunner{name: "zai", result: func(t *task.Task) *task.TaskResult {
+			return completedResult(t.ID)
+		}},
+	}
+
+	result := RunWithCascade(context.Background(), tk, "/tmp", t.TempDir(), runners, []string{"codex", "zai"}, 5*time.Minute, 0, bl, nil, nil, callback)
+
+	if result.State != task.StateCompleted {
+		t.Fatalf("expected completed, got %v", result.State)
+	}
+	// callback should fire for codex (failed) then zai (succeeded)
+	if len(callbackRunners) != 2 {
+		t.Fatalf("expected 2 callback calls, got %d: %v", len(callbackRunners), callbackRunners)
+	}
+	if callbackRunners[0] != "codex" {
+		t.Errorf("first callback should be codex, got %s", callbackRunners[0])
+	}
+	if callbackRunners[1] != "zai" {
+		t.Errorf("second callback should be zai, got %s", callbackRunners[1])
 	}
 }
