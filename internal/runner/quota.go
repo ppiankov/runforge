@@ -294,6 +294,8 @@ func ProviderEnvVar(provider string) string {
 		return "ANTHROPIC_API_KEY"
 	case "deepseek":
 		return "DEEPSEEK_API_KEY"
+	case "google":
+		return "GEMINI_API_KEY"
 	default:
 		return ""
 	}
@@ -301,12 +303,17 @@ func ProviderEnvVar(provider string) string {
 
 // CheckAllQuotas checks quotas for all providers that have API keys available.
 func CheckAllQuotas(ctx context.Context, getenv func(string) string) []*QuotaInfo {
-	providers := []string{"openai", "anthropic", "deepseek"}
+	providers := []string{"openai", "anthropic", "deepseek", "google"}
 	var results []*QuotaInfo
 
 	for _, p := range providers {
 		apiKey := ResolveAPIKey(p, getenv)
 		if apiKey == "" {
+			results = append(results, &QuotaInfo{
+				Provider:  p,
+				Available: true,
+				Error:     "no API key",
+			})
 			continue
 		}
 
