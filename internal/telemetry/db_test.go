@@ -270,6 +270,144 @@ func TestExport_FilterByRunner(t *testing.T) {
 	}
 }
 
+func TestMigration_V1ToV2(t *testing.T) {
+	db := tempDB(t)
+
+	// Verify v2 tables and columns exist
+	var count int
+	if err := db.conn.QueryRow(`SELECT COUNT(*) FROM attempts`).Scan(&count); err != nil {
+		t.Error("attempts table should exist:", err)
+	}
+
+	// Verify new columns on runs
+	_, err := db.conn.Exec(`SELECT skipped, false_positives, auto_commits, filter FROM runs LIMIT 0`)
+	if err != nil {
+		t.Error("runs v2 columns should exist:", err)
+	}
+
+	// Verify new columns on task_executions
+	_, err = db.conn.Exec(`SELECT error, tokens_reported, merge_conflict FROM task_executions LIMIT 0`)
+	if err != nil {
+		t.Error("task_executions v2 columns should exist:", err)
+	}
+}
+
+func TestRecord_WithAttempts(t *testing.T) {
+	db := tempDB(t)
+
+	now := time.Now()
+	tasks := []task.Task{
+		{ID: "t1", Repo: "org/repo", Title: "Fix bug", Difficulty: "complex"},
+	}
+	report := &task.RunReport{
+		RunID:          "run-att",
+		TasksFiles:     []string{"tasks.json"},
+		Workers:        2,
+		TotalTasks:     1,
+		Completed:      1,
+		FalsePositives: 0,
+		TotalDuration:  time.Minute,
+		Results: map[string]*task.TaskResult{
+			"t1": {
+				TaskID:     "t1",
+				State:      task.StateCompleted,
+				StartedAt:  now.Add(-time.Minute),
+				EndedAt:    now,
+				Duration:   time.Minute,
+				RunnerUsed: "gemini",
+				TokensUsed: &task.TokenUsage{InputTokens: 3000, OutputTokens: 1000, TotalTokens: 4000},
+				Attempts: []task.AttemptInfo{
+					{Runner: "codex", State: task.StateFailed, Duration: 30 * time.Second, Error: "exit 1"},
+					{Runner: "gemini", State: task.StateCompleted, Duration: 30 * time.Second},
+				},
+			},
+		},
+	}
+
+	if err := Record(db, report, tasks, nil); err != nil {
+		t.Fatal(err)
+	}
+
+	var count int
+	if err := db.conn.QueryRow(`SELECT COUNT(*) FROM attempts WHERE run_id = 'run-att'`).Scan(&count); err != nil {
+		t.Fatal(err)
+	}
+	if count != 2 {
+		t.Errorf("expected 2 attempt rows, got %d", count)
+	}
+
+	// Verify first attempt is codex/FAILED
+	var runner, state string
+	if err := db.conn.QueryRow(`SELECT runner, state FROM attempts WHERE run_id = 'run-att' AND attempt_num = 1`).Scan(&runner, &state); err != nil {
+		t.Fatal(err)
+	}
+	if runner != "codex" || state != "FAILED" {
+		t.Errorf("expected codex/FAILED, got %s/%s", runner, state)
+	}
+}
+
+func TestBench_CostPerSuccess(t *testing.T) {
+	db := tempDB(t)
+	insertTestData(t, db)
+
+	cps, err := QueryCostPerSuccess(db, "", 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(cps) == 0 {
+		t.Fatal("expected cost-per-success data")
+	}
+	for _, s := range cps {
+		if s.Runner == "codex" && s.Completed > 0 && s.CostPerTask <= 0 {
+			t.Error("codex should have positive cost per task")
+		}
+	}
+}
+
+func TestBench_CascadeEffectiveness(t *testing.T) {
+	db := tempDB(t)
+	insertTestData(t, db)
+
+	cascade, err := QueryCascadeEffectiveness(db, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(cascade) == 0 {
+		t.Fatal("expected cascade data")
+	}
+}
+
+func TestBench_FalsePositiveAnalysis(t *testing.T) {
+	db := tempDB(t)
+	insertTestData(t, db)
+
+	fps, err := QueryFalsePositiveAnalysis(db, "", 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(fps) == 0 {
+		t.Fatal("expected FP analysis data")
+	}
+}
+
+func TestBench_TokenEfficiency(t *testing.T) {
+	db := tempDB(t)
+	insertTestData(t, db)
+
+	teff, err := QueryTokenEfficiency(db, "", 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(teff) == 0 {
+		t.Fatal("expected token efficiency data")
+	}
+	for _, s := range teff {
+		if s.Runner == "codex" && s.AvgInput == 0 {
+			t.Error("codex should have non-zero avg input tokens")
+		}
+	}
+}
+
 func insertTestData(t *testing.T, db *DB) {
 	t.Helper()
 	now := time.Now().UTC().Format(time.RFC3339)
@@ -285,19 +423,20 @@ func insertTestData(t *testing.T, db *DB) {
 	}
 
 	rows := []struct {
-		id, taskID, runner, model, state string
-		input, output                    int
-		cost                             float64
+		id, taskID, runner, model, state, difficulty string
+		input, output                                int
+		cost                                         float64
+		fp, tokensReported                           int
 	}{
-		{"run1/t1", "t1", "codex", "gpt-4.1", "COMPLETED", 5000, 2000, 0.026},
-		{"run1/t2", "t2", "codex", "gpt-4.1", "COMPLETED", 3000, 1000, 0.014},
-		{"run1/t3", "t3", "gemini", "gemini-2.5-pro", "FAILED", 1000, 500, 0.006},
+		{"run1/t1", "t1", "codex", "gpt-4.1", "COMPLETED", "simple", 5000, 2000, 0.026, 0, 1},
+		{"run1/t2", "t2", "codex", "gpt-4.1", "COMPLETED", "complex", 3000, 1000, 0.014, 1, 1},
+		{"run1/t3", "t3", "gemini", "gemini-2.5-pro", "FAILED", "simple", 1000, 500, 0.006, 0, 1},
 	}
 	for _, r := range rows {
 		_, err = tx.Exec(`INSERT INTO task_executions
-			(id, run_id, task_id, runner, model, state, input_tokens, output_tokens, total_tokens, cost_usd, duration_ms, repo, task_title, created_at)
-			VALUES (?, 'run1', ?, ?, ?, ?, ?, ?, ?, ?, 60000, 'org/repo', 'task', ?)`,
-			r.id, r.taskID, r.runner, r.model, r.state, r.input, r.output, r.input+r.output, r.cost, now)
+			(id, run_id, task_id, runner, model, state, difficulty, input_tokens, output_tokens, total_tokens, cost_usd, duration_ms, false_positive, tokens_reported, repo, task_title, created_at)
+			VALUES (?, 'run1', ?, ?, ?, ?, ?, ?, ?, ?, ?, 60000, ?, ?, 'org/repo', 'task', ?)`,
+			r.id, r.taskID, r.runner, r.model, r.state, r.difficulty, r.input, r.output, r.input+r.output, r.cost, r.fp, r.tokensReported, now)
 		if err != nil {
 			t.Fatal(err)
 		}

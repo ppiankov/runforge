@@ -11,7 +11,7 @@ import (
 
 const (
 	dbDriver        = "sqlite"
-	dbSchemaVersion = 1
+	dbSchemaVersion = 2
 )
 
 // DB wraps a SQLite connection for telemetry storage.
@@ -66,6 +66,11 @@ func (db *DB) migrate() error {
 			return fmt.Errorf("migrate v1: %w", err)
 		}
 	}
+	if version < 2 {
+		if err := db.migrateV2(); err != nil {
+			return fmt.Errorf("migrate v2: %w", err)
+		}
+	}
 
 	return nil
 }
@@ -114,6 +119,53 @@ func (db *DB) migrateV1() error {
 		`CREATE INDEX IF NOT EXISTS idx_te_state ON task_executions(state)`,
 		`CREATE INDEX IF NOT EXISTS idx_te_created_at ON task_executions(created_at)`,
 		`INSERT INTO schema_version (version) VALUES (1)`,
+	}
+
+	tx, err := db.conn.Begin()
+	if err != nil {
+		return err
+	}
+	defer func() { _ = tx.Rollback() }()
+
+	for _, stmt := range stmts {
+		if _, err := tx.Exec(stmt); err != nil {
+			return fmt.Errorf("exec %q: %w", stmt[:40], err)
+		}
+	}
+
+	return tx.Commit()
+}
+
+func (db *DB) migrateV2() error {
+	stmts := []string{
+		// New attempts table for per-attempt detail
+		`CREATE TABLE IF NOT EXISTS attempts (
+			id                INTEGER PRIMARY KEY AUTOINCREMENT,
+			run_id            TEXT NOT NULL,
+			task_id           TEXT NOT NULL,
+			attempt_num       INTEGER NOT NULL,
+			runner            TEXT NOT NULL,
+			state             TEXT NOT NULL,
+			duration_ms       INTEGER NOT NULL DEFAULT 0,
+			error             TEXT NOT NULL DEFAULT '',
+			connectivity_error TEXT NOT NULL DEFAULT '',
+			created_at        TEXT NOT NULL
+		)`,
+		`CREATE INDEX IF NOT EXISTS idx_att_run_task ON attempts(run_id, task_id)`,
+		`CREATE INDEX IF NOT EXISTS idx_att_runner ON attempts(runner)`,
+
+		// Add columns to runs
+		`ALTER TABLE runs ADD COLUMN skipped INTEGER NOT NULL DEFAULT 0`,
+		`ALTER TABLE runs ADD COLUMN false_positives INTEGER NOT NULL DEFAULT 0`,
+		`ALTER TABLE runs ADD COLUMN auto_commits INTEGER NOT NULL DEFAULT 0`,
+		`ALTER TABLE runs ADD COLUMN filter TEXT NOT NULL DEFAULT ''`,
+
+		// Add columns to task_executions
+		`ALTER TABLE task_executions ADD COLUMN error TEXT NOT NULL DEFAULT ''`,
+		`ALTER TABLE task_executions ADD COLUMN tokens_reported INTEGER NOT NULL DEFAULT 0`,
+		`ALTER TABLE task_executions ADD COLUMN merge_conflict INTEGER NOT NULL DEFAULT 0`,
+
+		`INSERT INTO schema_version (version) VALUES (2)`,
 	}
 
 	tx, err := db.conn.Begin()

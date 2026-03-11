@@ -61,6 +61,7 @@ func NewRootCmd() *cobra.Command {
 	root.AddCommand(newPRCmd())
 	root.AddCommand(newStatsCmd())
 	root.AddCommand(newExportCmd())
+	root.AddCommand(newBenchCmd())
 
 	return root
 }

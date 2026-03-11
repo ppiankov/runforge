@@ -33,11 +33,13 @@ func Record(db *DB, report *task.RunReport, tasks []task.Task, profiles map[stri
 	}
 
 	_, err = tx.Exec(`INSERT OR REPLACE INTO runs
-		(run_id, tasks_files, workers, total_tasks, completed, failed, rate_limited, total_duration_ms, total_cost_usd, created_at)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		(run_id, tasks_files, workers, total_tasks, completed, failed, rate_limited,
+		 total_duration_ms, total_cost_usd, skipped, false_positives, auto_commits, filter, created_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		report.RunID, string(tasksFilesJSON), report.Workers,
 		report.TotalTasks, report.Completed, report.Failed, report.RateLimited,
-		report.TotalDuration.Milliseconds(), totalCost, now)
+		report.TotalDuration.Milliseconds(), totalCost,
+		report.Skipped, report.FalsePositives, report.AutoCommits, report.Filter, now)
 	if err != nil {
 		return err
 	}
@@ -57,22 +59,49 @@ func Record(db *DB, report *task.RunReport, tasks []task.Task, profiles map[stri
 			cascadeStep = 1
 		}
 
+		tokensReported := 0
+		if res.TokensUsed != nil {
+			tokensReported = 1
+		}
+		errMsg := res.Error
+		if len(errMsg) > 500 {
+			errMsg = errMsg[:500]
+		}
+
 		_, err = tx.Exec(`INSERT OR REPLACE INTO task_executions
 			(id, run_id, task_id, runner, model, state, difficulty, cascade_step,
 			 input_tokens, output_tokens, total_tokens, cost_usd,
 			 duration_ms, started_at, ended_at,
 			 false_positive, auto_committed, attempts,
-			 repo, task_title, tasks_file, created_at)
-			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+			 repo, task_title, tasks_file,
+			 error, tokens_reported, merge_conflict, created_at)
+			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 			report.RunID+"/"+t.ID, report.RunID, t.ID,
 			res.RunnerUsed, model, res.State.String(), t.Difficulty, cascadeStep,
 			inputTokens, outputTokens, totalTokens, cost,
 			res.Duration.Milliseconds(),
 			formatTime(res.StartedAt), formatTime(res.EndedAt),
 			boolToInt(res.FalsePositive), boolToInt(res.AutoCommitted),
-			len(res.Attempts), t.Repo, t.Title, "", now)
+			len(res.Attempts), t.Repo, t.Title, "",
+			errMsg, tokensReported, boolToInt(res.MergeConflict), now)
 		if err != nil {
 			return err
+		}
+
+		// Insert per-attempt rows
+		for i, att := range res.Attempts {
+			attErr := att.Error
+			if len(attErr) > 500 {
+				attErr = attErr[:500]
+			}
+			_, err = tx.Exec(`INSERT INTO attempts
+				(run_id, task_id, attempt_num, runner, state, duration_ms, error, connectivity_error, created_at)
+				VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+				report.RunID, t.ID, i+1, att.Runner, att.State.String(),
+				att.Duration.Milliseconds(), attErr, att.ConnectivityError, now)
+			if err != nil {
+				return err
+			}
 		}
 	}
 
