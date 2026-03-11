@@ -29,6 +29,7 @@ func Load(path string) (*task.TaskFile, error) {
 
 	for i := range tf.Tasks {
 		tf.Tasks[i].SourceFile = path
+		tf.Tasks[i].Runner = normalizeRunner(tf.Tasks[i].Runner)
 	}
 
 	return &tf, nil
@@ -50,6 +51,10 @@ func loadRaw(path string) (*task.TaskFile, error) {
 
 	if err := validateStructure(&tf); err != nil {
 		return nil, err
+	}
+
+	for i := range tf.Tasks {
+		tf.Tasks[i].Runner = normalizeRunner(tf.Tasks[i].Runner)
 	}
 
 	for i := range tf.Tasks {
@@ -326,6 +331,16 @@ func ValidateRepos(tf *task.TaskFile, reposDir string) error {
 // Relative "owner/name" paths resolve to reposDir/name.
 // If reposDir already ends with the repo name, return reposDir directly
 // (handles running from inside the repo directory).
+// normalizeRunner strips common prefixes that agents sometimes inject into runner names.
+func normalizeRunner(name string) string {
+	if name == "" {
+		return ""
+	}
+	// "via claude" → "claude", "via codex" → "codex"
+	name = strings.TrimPrefix(name, "via ")
+	return strings.TrimSpace(strings.ToLower(name))
+}
+
 func RepoPath(repo, reposDir string) string {
 	if filepath.IsAbs(repo) {
 		return repo
