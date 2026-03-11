@@ -99,21 +99,37 @@ func isGitIgnored(ctx context.Context, repoDir, file string) bool {
 }
 
 // runGitCmd executes a git command in the given directory.
-// Sets tokencontrol identity so commits work in environments without global git config (e.g. CI).
+// Uses the user's git identity if available, falling back to tokencontrol for CI environments.
 func runGitCmd(ctx context.Context, dir string, args ...string) error {
 	cmd := exec.CommandContext(ctx, "git", args...)
 	cmd.Dir = dir
-	cmd.Env = append(os.Environ(),
-		"GIT_AUTHOR_NAME=tokencontrol",
-		"GIT_AUTHOR_EMAIL=tokencontrol@localhost",
-		"GIT_COMMITTER_NAME=tokencontrol",
-		"GIT_COMMITTER_EMAIL=tokencontrol@localhost",
-	)
+	env := os.Environ()
+	if !hasGitIdentity(env) {
+		env = append(env,
+			"GIT_AUTHOR_NAME=tokencontrol",
+			"GIT_AUTHOR_EMAIL=tokencontrol@localhost",
+			"GIT_COMMITTER_NAME=tokencontrol",
+			"GIT_COMMITTER_EMAIL=tokencontrol@localhost",
+		)
+	}
+	cmd.Env = env
 	out, err := cmd.CombinedOutput()
 	if err != nil {
 		return fmt.Errorf("%s: %s", err, strings.TrimSpace(string(out)))
 	}
 	return nil
+}
+
+// hasGitIdentity checks if git user identity is already set via env vars or global config.
+func hasGitIdentity(env []string) bool {
+	for _, e := range env {
+		if strings.HasPrefix(e, "GIT_AUTHOR_NAME=") || strings.HasPrefix(e, "GIT_AUTHOR_EMAIL=") {
+			return true
+		}
+	}
+	// Check if git has a global config identity
+	out, err := exec.Command("git", "config", "user.email").Output()
+	return err == nil && len(strings.TrimSpace(string(out))) > 0
 }
 
 // commitTypePrefixes maps title prefixes to conventional commit types.
