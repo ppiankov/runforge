@@ -89,7 +89,7 @@ func TestFmtRunning_ShowsRunner(t *testing.T) {
 		State:      task.StateRunning,
 		RunnerUsed: "codex",
 	}
-	line := m.fmtRunning(res, &tasks[0], "⠋")
+	line := m.fmtRunning(res, &tasks[0], "⠋", colWidths{id: 20, runner: 12, repo: 12})
 	if !strings.Contains(line, "codex") {
 		t.Error("expected runner 'codex' in running line")
 	}
@@ -116,7 +116,7 @@ func TestFmtDone_ShowsTokens(t *testing.T) {
 		RunnerUsed: "codex",
 		TokensUsed: &task.TokenUsage{TotalTokens: 45200},
 	}
-	line := m.fmtDone(res, &tasks[0])
+	line := m.fmtDone(res, &tasks[0], colWidths{id: 20, runner: 12, repo: 12})
 	if !strings.Contains(line, "codex") {
 		t.Error("expected runner 'codex' in done line")
 	}

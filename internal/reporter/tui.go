@@ -1252,10 +1252,49 @@ func (m TUIModel) buildTaskIDs() []string {
 	return ids
 }
 
+// colWidths holds computed column widths for aligned task display.
+type colWidths struct {
+	id     int
+	runner int
+	repo   int
+}
+
+func (m TUIModel) computeColWidths(entries []taskEntry) colWidths {
+	w := colWidths{id: 10, runner: 8, repo: 8} // minimums
+	for _, e := range entries {
+		id := ""
+		if e.t != nil {
+			id = e.t.ID
+		}
+		if e.res != nil && e.res.TaskID != "" {
+			id = e.res.TaskID
+		}
+		if len(id) > w.id {
+			w.id = len(id)
+		}
+		rn := ""
+		if e.res != nil {
+			rn = e.res.RunnerUsed
+		}
+		if rn == "" && e.t != nil {
+			rn = e.t.Runner
+		}
+		if len(rn) > w.runner {
+			w.runner = len(rn)
+		}
+		repo := repoShort(e.t)
+		if len(repo) > w.repo {
+			w.repo = len(repo)
+		}
+	}
+	return w
+}
+
 func (m TUIModel) buildTaskLines() []string {
 	entries := m.sortedTaskEntries()
 	spinner := spinnerChars[m.frame%len(spinnerChars)]
 	lines := make([]string, 0, len(entries))
+	w := m.computeColWidths(entries)
 
 	showCursor := m.focusedPanel == panelTasks && m.taskCtrl != nil
 
@@ -1268,24 +1307,24 @@ func (m TUIModel) buildTaskLines() []string {
 		var line string
 		switch {
 		case e.res == nil || e.state == task.StatePending || e.state == task.StateReady:
-			line = prefix + m.fmtQueued(e.t)
+			line = prefix + m.fmtQueued(e.t, w)
 		case e.state == task.StateFailed || e.state == task.StateSkipped:
-			line = prefix + m.fmtFailed(e.res, e.t)
+			line = prefix + m.fmtFailed(e.res, e.t, w)
 		case e.state == task.StateRunning:
-			line = prefix + m.fmtRunning(e.res, e.t, spinner)
+			line = prefix + m.fmtRunning(e.res, e.t, spinner, w)
 		case e.state == task.StateCompleted:
-			line = prefix + m.fmtDone(e.res, e.t)
+			line = prefix + m.fmtDone(e.res, e.t, w)
 		case e.state == task.StateRateLimited:
-			line = prefix + m.fmtRateLimited(e.res, e.t)
+			line = prefix + m.fmtRateLimited(e.res, e.t, w)
 		default:
-			line = prefix + m.fmtQueued(e.t)
+			line = prefix + m.fmtQueued(e.t, w)
 		}
 		lines = append(lines, line)
 	}
 	return lines
 }
 
-func (m TUIModel) fmtFailed(res *task.TaskResult, t *task.Task) string {
+func (m TUIModel) fmtFailed(res *task.TaskResult, t *task.Task, w colWidths) string {
 	icon := "✗"
 	label := "FAILED"
 	if res.State == task.StateSkipped {
@@ -1298,34 +1337,34 @@ func (m TUIModel) fmtFailed(res *task.TaskResult, t *task.Task) string {
 	if len(errMsg) > 30 {
 		errMsg = errMsg[:30] + "..."
 	}
-	return failedStyle.Render(fmt.Sprintf("  %s %-10s %-20s %-12s %-12s %s", icon, label, res.TaskID, trail, repo, errMsg))
+	f := fmt.Sprintf("  %%s %%-10s %%-%ds %%-%ds %%-%ds %%s", w.id, w.runner, w.repo)
+	return failedStyle.Render(fmt.Sprintf(f, icon, label, res.TaskID, trail, repo, errMsg))
 }
 
-func (m TUIModel) fmtRunning(res *task.TaskResult, t *task.Task, spinner string) string {
+func (m TUIModel) fmtRunning(res *task.TaskResult, t *task.Task, spinner string, w colWidths) string {
 	rn := res.RunnerUsed
 	if rn == "" && t != nil {
 		rn = t.Runner
 	}
 	repo := repoShort(t)
 	elapsed := time.Since(res.StartedAt).Truncate(time.Second)
-	return runStyle.Render(fmt.Sprintf("  %s %-10s %-20s %-12s %-12s %s", spinner, "running", res.TaskID, rn, repo, elapsed))
+	f := fmt.Sprintf("  %%s %%-10s %%-%ds %%-%ds %%-%ds %%s", w.id, w.runner, w.repo)
+	return runStyle.Render(fmt.Sprintf(f, spinner, "running", res.TaskID, rn, repo, elapsed))
 }
 
-func (m TUIModel) fmtDone(res *task.TaskResult, t *task.Task) string {
+func (m TUIModel) fmtDone(res *task.TaskResult, t *task.Task, w colWidths) string {
 	dur := res.Duration.Truncate(time.Second)
 	rn := res.RunnerUsed
-	if rn != "" && len(res.Attempts) > 1 && len(uniqueAttemptRunners(res.Attempts)) > 1 {
-		rn = "via " + rn
-	}
 	repo := repoShort(t)
 	tokens := ""
 	if res.TokensUsed != nil && res.TokensUsed.TotalTokens > 0 {
 		tokens = formatCompactTokens(res.TokensUsed.TotalTokens)
 	}
-	return doneStyle.Render(fmt.Sprintf("  ✓ %-10s %-20s %-12s %-12s %-8s %s", "done", res.TaskID, rn, repo, dur, tokens))
+	f := fmt.Sprintf("  ✓ %%-10s %%-%ds %%-%ds %%-%ds %%-8s %%s", w.id, w.runner, w.repo)
+	return doneStyle.Render(fmt.Sprintf(f, "done", res.TaskID, rn, repo, dur, tokens))
 }
 
-func (m TUIModel) fmtRateLimited(res *task.TaskResult, t *task.Task) string {
+func (m TUIModel) fmtRateLimited(res *task.TaskResult, t *task.Task, w colWidths) string {
 	repo := repoShort(t)
 	info := "rate limit"
 	if !res.ResetsAt.IsZero() {
@@ -1335,10 +1374,11 @@ func (m TUIModel) fmtRateLimited(res *task.TaskResult, t *task.Task) string {
 		}
 	}
 	rn := res.RunnerUsed
-	return rlStyle.Render(fmt.Sprintf("  ⏸ %-10s %-20s %-12s %-12s %s", "rate-limit", res.TaskID, rn, repo, info))
+	f := fmt.Sprintf("  ⏸ %%-10s %%-%ds %%-%ds %%-%ds %%s", w.id, w.runner, w.repo)
+	return rlStyle.Render(fmt.Sprintf(f, "rate-limit", res.TaskID, rn, repo, info))
 }
 
-func (m TUIModel) fmtQueued(t *task.Task) string {
+func (m TUIModel) fmtQueued(t *task.Task, w colWidths) string {
 	repo := repoShort(t)
 	dep := ""
 	if t != nil && len(t.DependsOn) > 0 {
@@ -1348,7 +1388,8 @@ func (m TUIModel) fmtQueued(t *task.Task) string {
 	if t != nil {
 		id = t.ID
 	}
-	return dimStyle.Render(fmt.Sprintf("  ─ %-10s %-20s %-12s %-12s %s", "queued", id, "", repo, dep))
+	f := fmt.Sprintf("  ─ %%-10s %%-%ds %%-%ds %%-%ds %%s", w.id, w.runner, w.repo)
+	return dimStyle.Render(fmt.Sprintf(f, "queued", id, "", repo, dep))
 }
 
 func (m TUIModel) progressLine(done, running, failed, rateLimited, queued int) string {
