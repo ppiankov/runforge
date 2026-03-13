@@ -1174,6 +1174,7 @@ func runMergeResolve(
 	tailMergeLog(stderrPath, 0, resolveStart)
 
 	if result.State == task.StateCompleted {
+		runner.SanitizeHeadCommit(ctx, repoDir)
 		// verify which branches were merged and clean them up
 		merged := 0
 		for _, c := range conflicts {
