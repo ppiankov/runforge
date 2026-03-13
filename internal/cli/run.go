@@ -359,7 +359,7 @@ func runTasks(tasksFile string, workers int, verify bool, reposDir, filter strin
 		secretRepos:   secretRepos,
 		stateTracker:  stateTracker,
 		noAutoCommit:  noAutoCommit,
-		parallelRepo:  parallelRepo || (cfg != nil && cfg.ParallelRepo),
+		parallelRepo:  parallelRepo || (cfg != nil && cfg.ParallelRepo) || tf.ParallelRepo,
 		mergeBack:     resolveMergeBack(tf, cfg),
 		initialQuotas: initialQuotas,
 	})
