@@ -88,7 +88,24 @@ func changedFiles(ctx context.Context, repoDir string) ([]string, error) {
 		}
 	}
 
-	return files, nil
+	// exclude tokencontrol state files — these are run artifacts, never user code
+	filtered := files[:0]
+	for _, f := range files {
+		if !isTokencontrolPath(f) {
+			filtered = append(filtered, f)
+		}
+	}
+	return filtered, nil
+}
+
+// isTokencontrolPath returns true for tokencontrol state/artifact paths
+// that should never be auto-committed.
+func isTokencontrolPath(file string) bool {
+	return strings.HasPrefix(file, ".tokencontrol/") ||
+		strings.HasPrefix(file, ".tokencontrol\\") ||
+		strings.HasPrefix(file, "docs/tokencontrol/") ||
+		strings.HasPrefix(file, "docs\\tokencontrol\\") ||
+		file == ".tokencontrol.lock"
 }
 
 // isGitIgnored returns true if the file is covered by .gitignore.

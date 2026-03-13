@@ -153,6 +153,26 @@ func removeWorktreeForce(ctx context.Context, repoDir, wtDir string) {
 	}
 }
 
+// ListConflictFiles returns file paths that differ between HEAD and the given branch.
+func ListConflictFiles(ctx context.Context, repoDir, branch string) []string {
+	cmdCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	defer cancel()
+
+	cmd := exec.CommandContext(cmdCtx, "git", "diff", "--name-only", "HEAD..."+branch)
+	cmd.Dir = repoDir
+	out, err := cmd.Output()
+	if err != nil {
+		return nil
+	}
+	var files []string
+	for _, line := range strings.Split(strings.TrimSpace(string(out)), "\n") {
+		if line != "" {
+			files = append(files, line)
+		}
+	}
+	return files
+}
+
 // deleteBranchIfExists removes a branch if it exists, ignoring errors.
 func deleteBranchIfExists(ctx context.Context, repoDir, branch string) {
 	cmdCtx, cancel := context.WithTimeout(ctx, 10*time.Second)

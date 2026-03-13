@@ -31,21 +31,22 @@ import (
 
 func newRunCmd() *cobra.Command {
 	var (
-		tasksFile    string
-		workers      int
-		verify       bool
-		reposDir     string
-		filter       string
-		dryRun       bool
-		maxRuntime   time.Duration
-		idleTimeout  time.Duration
-		failFast     bool
-		tuiMode      string
-		allowFree    bool
-		retry        bool
-		noAutoCommit bool
-		parallelRepo bool
-		maxRetries   int
+		tasksFile      string
+		workers        int
+		verify         bool
+		reposDir       string
+		filter         string
+		dryRun         bool
+		maxRuntime     time.Duration
+		idleTimeout    time.Duration
+		failFast       bool
+		tuiMode        string
+		allowFree      bool
+		retry          bool
+		noAutoCommit   bool
+		parallelRepo   bool
+		noMergeResolve bool
+		maxRetries     int
 
 		strictReadiness bool
 
@@ -106,7 +107,7 @@ func newRunCmd() *cobra.Command {
 				Enforce:         codexQuotaEnforce,
 				LookbackRuns:    codexQuotaLookback,
 			}
-			return runTasks(tasksFile, workers, verify, reposDir, filter, dryRun, maxRuntime, idleTimeout, failFast, tuiMode, allowFree, retry, noAutoCommit, parallelRepo, strictReadiness, maxRetries, quotaCfg, cfg)
+			return runTasks(tasksFile, workers, verify, reposDir, filter, dryRun, maxRuntime, idleTimeout, failFast, tuiMode, allowFree, retry, noAutoCommit, parallelRepo, noMergeResolve, strictReadiness, maxRetries, quotaCfg, cfg)
 		},
 	}
 
@@ -124,6 +125,7 @@ func newRunCmd() *cobra.Command {
 	cmd.Flags().BoolVar(&retry, "retry", false, "re-execute failed and interrupted tasks")
 	cmd.Flags().BoolVar(&noAutoCommit, "no-auto-commit", false, "disable auto-commit of uncommitted changes after task completion")
 	cmd.Flags().BoolVar(&parallelRepo, "parallel-repo", false, "use git worktrees for parallel same-repo task execution")
+	cmd.Flags().BoolVar(&noMergeResolve, "no-merge-resolve", false, "disable auto-generated merge resolution task for parallel conflicts")
 	cmd.Flags().IntVar(&maxRetries, "max-retries", 2, "max retries per runner on transient failures (connectivity, idle timeout); 0 disables")
 	cmd.Flags().BoolVar(&strictReadiness, "strict-readiness", false, "fail if agent readiness checks produce warnings")
 	cmd.Flags().IntVar(&codexQuotaRemaining, "codex-quota-remaining", 0, "remaining codex budget in tokens; 0 disables quota preflight")
@@ -135,7 +137,7 @@ func newRunCmd() *cobra.Command {
 	return cmd
 }
 
-func runTasks(tasksFile string, workers int, verify bool, reposDir, filter string, dryRun bool, maxRuntime, idleTimeout time.Duration, failFast bool, tuiMode string, allowFree, retry, noAutoCommit, parallelRepo, strictReadiness bool, maxRetries int, quotaCfg quotaPreflightConfig, cfg *config.Settings) error {
+func runTasks(tasksFile string, workers int, verify bool, reposDir, filter string, dryRun bool, maxRuntime, idleTimeout time.Duration, failFast bool, tuiMode string, allowFree, retry, noAutoCommit, parallelRepo, noMergeResolve, strictReadiness bool, maxRetries int, quotaCfg quotaPreflightConfig, cfg *config.Settings) error {
 	// resolve glob pattern to concrete file paths
 	paths, err := config.ResolveGlob(tasksFile)
 	if err != nil {
@@ -341,27 +343,28 @@ func runTasks(tasksFile string, workers int, verify bool, reposDir, filter strin
 	}
 
 	report, err := executeRun(execRunConfig{
-		tasksFiles:    paths,
-		taskFile:      tf,
-		tasks:         tasks,
-		graph:         graph,
-		workers:       workers,
-		reposDir:      reposDir,
-		filter:        filter,
-		maxRuntime:    maxRuntime,
-		maxRetries:    maxRetries,
-		idleTimeout:   idleTimeout,
-		failFast:      failFast,
-		postRun:       cfg.PostRun,
-		settings:      cfg,
-		tuiMode:       tuiMode,
-		allowFree:     allowFree,
-		secretRepos:   secretRepos,
-		stateTracker:  stateTracker,
-		noAutoCommit:  noAutoCommit,
-		parallelRepo:  parallelRepo || (cfg != nil && cfg.ParallelRepo) || tf.ParallelRepo,
-		mergeBack:     resolveMergeBack(tf, cfg),
-		initialQuotas: initialQuotas,
+		tasksFiles:     paths,
+		taskFile:       tf,
+		tasks:          tasks,
+		graph:          graph,
+		workers:        workers,
+		reposDir:       reposDir,
+		filter:         filter,
+		maxRuntime:     maxRuntime,
+		maxRetries:     maxRetries,
+		idleTimeout:    idleTimeout,
+		failFast:       failFast,
+		postRun:        cfg.PostRun,
+		settings:       cfg,
+		tuiMode:        tuiMode,
+		allowFree:      allowFree,
+		secretRepos:    secretRepos,
+		stateTracker:   stateTracker,
+		noAutoCommit:   noAutoCommit,
+		parallelRepo:   parallelRepo || (cfg != nil && cfg.ParallelRepo) || tf.ParallelRepo,
+		mergeBack:      resolveMergeBack(tf, cfg),
+		noMergeResolve: noMergeResolve,
+		initialQuotas:  initialQuotas,
 	})
 	if err != nil {
 		return err
@@ -388,29 +391,30 @@ func runTasks(tasksFile string, workers int, verify bool, reposDir, filter strin
 
 // execRunConfig holds parameters for executeRun.
 type execRunConfig struct {
-	tasksFiles    []string
-	taskFile      *task.TaskFile // full parsed/merged file with profiles
-	tasks         []task.Task
-	graph         *task.Graph
-	workers       int
-	reposDir      string
-	filter        string
-	maxRuntime    time.Duration
-	maxRetries    int
-	idleTimeout   time.Duration
-	failFast      bool
-	parentRunID   string                                    // links rerun to original run
-	postRun       string                                    // shell command to run after report is written
-	settings      *config.Settings                          // runtime settings for limiter etc.
-	tuiMode       string                                    // full, minimal, off, auto
-	allowFree     bool                                      // include free-tier runners in cascade
-	secretRepos   map[string]struct{}                       // repos with secrets detected by pre-scan
-	noAutoCommit  bool                                      // disable auto-commit of uncommitted changes
-	parallelRepo  bool                                      // use git worktrees for parallel same-repo execution
-	mergeBack     bool                                      // auto-merge worktree branches back to main
-	stateTracker  *state.Tracker                            // persistent task state across runs
-	onProgress    func(results map[string]*task.TaskResult) // optional progress callback for sentinel
-	initialQuotas []*runner.QuotaInfo                       // pre-flight quota results to seed TUI cache
+	tasksFiles     []string
+	taskFile       *task.TaskFile // full parsed/merged file with profiles
+	tasks          []task.Task
+	graph          *task.Graph
+	workers        int
+	reposDir       string
+	filter         string
+	maxRuntime     time.Duration
+	maxRetries     int
+	idleTimeout    time.Duration
+	failFast       bool
+	parentRunID    string                                    // links rerun to original run
+	postRun        string                                    // shell command to run after report is written
+	settings       *config.Settings                          // runtime settings for limiter etc.
+	tuiMode        string                                    // full, minimal, off, auto
+	allowFree      bool                                      // include free-tier runners in cascade
+	secretRepos    map[string]struct{}                       // repos with secrets detected by pre-scan
+	noAutoCommit   bool                                      // disable auto-commit of uncommitted changes
+	parallelRepo   bool                                      // use git worktrees for parallel same-repo execution
+	mergeBack      bool                                      // auto-merge worktree branches back to main
+	noMergeResolve bool                                      // disable auto-generated merge resolution task
+	stateTracker   *state.Tracker                            // persistent task state across runs
+	onProgress     func(results map[string]*task.TaskResult) // optional progress callback for sentinel
+	initialQuotas  []*runner.QuotaInfo                       // pre-flight quota results to seed TUI cache
 }
 
 // execRunResult wraps the report and run directory.
@@ -794,6 +798,17 @@ func executeRun(cfg execRunConfig) (*execRunResult, error) {
 		reviewPool.ApplyResults(results)
 	}
 
+	// auto-resolve merge conflicts from parallel repo execution
+	if cfg.parallelRepo && cfg.mergeBack && !cfg.noMergeResolve {
+		conflicts := collectConflicts(results, cfg.tasks)
+		if len(conflicts) > 0 {
+			resolveResult := runMergeResolve(ctx, conflicts, cfg, runners, defaultRunner, tf, blacklist, graylist, limiter, runDir)
+			if resolveResult != nil {
+				results[resolveResult.TaskID] = resolveResult
+			}
+		}
+	}
+
 	report := buildReport(cfg.tasksFiles, cfg.workers, cfg.filter, cfg.reposDir, results, totalDuration, cfg.parentRunID)
 	textRep.PrintStatus(cfg.graph, results)
 	textRep.PrintSummary(report)
@@ -1034,6 +1049,160 @@ func resolveMergeBack(tf *task.TaskFile, cfg *config.Settings) bool {
 		return *cfg.MergeBack
 	}
 	return true // default: auto-merge
+}
+
+// conflictInfo holds metadata about a merge-conflicted task for resolution.
+type conflictInfo struct {
+	taskID string
+	branch string
+	title  string
+	prompt string
+	repo   string
+}
+
+// collectConflicts finds tasks with unmerged worktree branches.
+func collectConflicts(results map[string]*task.TaskResult, tasks []task.Task) []conflictInfo {
+	// index tasks by ID for prompt/title lookup
+	taskMap := make(map[string]*task.Task, len(tasks))
+	for i := range tasks {
+		taskMap[tasks[i].ID] = &tasks[i]
+	}
+
+	var conflicts []conflictInfo
+	for _, r := range results {
+		if !r.MergeConflict || r.WorktreeBranch == "" {
+			continue
+		}
+		ci := conflictInfo{
+			taskID: r.TaskID,
+			branch: r.WorktreeBranch,
+		}
+		if t, ok := taskMap[r.TaskID]; ok {
+			ci.title = t.Title
+			ci.repo = t.Repo
+			ci.prompt = t.Prompt
+			if len(ci.prompt) > 200 {
+				ci.prompt = ci.prompt[:200] + "..."
+			}
+		}
+		conflicts = append(conflicts, ci)
+	}
+	return conflicts
+}
+
+// runMergeResolve dispatches a synthetic merge resolution task for conflicted branches.
+func runMergeResolve(
+	ctx context.Context,
+	conflicts []conflictInfo,
+	cfg execRunConfig,
+	runners map[string]runner.Runner,
+	defaultRunner string,
+	tf *task.TaskFile,
+	blacklist *runner.RunnerBlacklist,
+	graylist *runner.RunnerGraylist,
+	limiter *runner.ProviderLimiter,
+	runDir string,
+) *task.TaskResult {
+	if len(conflicts) == 0 {
+		return nil
+	}
+
+	// all conflicts must be on the same repo (parallel_repo is per-repo)
+	repoDir := config.RepoPath(cfg.reposDir, conflicts[0].repo)
+
+	// build the resolution prompt
+	prompt := buildMergeResolvePrompt(ctx, repoDir, conflicts)
+
+	resolveID := "merge-resolve"
+	resolveTask := &task.Task{
+		ID:         resolveID,
+		Repo:       conflicts[0].repo,
+		Title:      fmt.Sprintf("Merge resolve: %d branches", len(conflicts)),
+		Prompt:     prompt,
+		Difficulty: "medium",
+	}
+
+	// resolve cascade for the synthetic task
+	cascade := resolveRunnerCascade(resolveTask, defaultRunner, tf.DefaultFallbacks)
+	if len(cascade) == 0 {
+		slog.Warn("merge-resolve: no runners available")
+		return nil
+	}
+
+	outputDir := filepath.Join(runDir, resolveID)
+	_ = os.MkdirAll(outputDir, 0o755)
+
+	fmt.Fprintf(os.Stdout, "\nMerge resolution: dispatching agent to resolve %d conflicted branches...\n", len(conflicts))
+
+	// acquire repo lock for merge resolution (runs on main repo, not worktree)
+	if err := runner.WaitAndAcquire(ctx, repoDir, resolveID); err != nil {
+		slog.Warn("merge-resolve: failed to acquire repo lock", "error", err)
+		return nil
+	}
+	defer runner.Release(repoDir)
+
+	result := RunWithCascade(ctx, resolveTask, repoDir, outputDir, runners, cascade,
+		cfg.maxRuntime, cfg.maxRetries, blacklist, graylist, limiter, nil)
+
+	if result.State == task.StateCompleted {
+		// verify which branches were merged and clean them up
+		merged := 0
+		for _, c := range conflicts {
+			if isBranchMerged(ctx, repoDir, c.branch) {
+				runner.DeleteBranch(ctx, repoDir, c.branch)
+				merged++
+			}
+		}
+		fmt.Fprintf(os.Stdout, "Merge resolution: %d/%d branches merged successfully\n", merged, len(conflicts))
+	} else {
+		slog.Warn("merge-resolve task failed, branches left for manual resolution",
+			"state", result.State, "error", result.Error)
+	}
+
+	return result
+}
+
+// buildMergeResolvePrompt constructs agent instructions for resolving merge conflicts.
+func buildMergeResolvePrompt(ctx context.Context, repoDir string, conflicts []conflictInfo) string {
+	var b strings.Builder
+	fmt.Fprintf(&b, "You have %d unmerged branches from parallel task execution that need to be merged into the current branch.\n\n", len(conflicts))
+	b.WriteString("For each branch listed below, merge it sequentially using: git merge <branch>\n")
+	b.WriteString("If there are conflicts, resolve them by understanding what each task intended.\n")
+	b.WriteString("Do NOT delete any branch — just merge them.\n\n")
+
+	for _, c := range conflicts {
+		fmt.Fprintf(&b, "Branch: %s\n", c.branch)
+		if c.title != "" {
+			fmt.Fprintf(&b, "  Task: %q\n", c.title)
+		}
+		files := runner.ListConflictFiles(ctx, repoDir, c.branch)
+		if len(files) > 0 {
+			fmt.Fprintf(&b, "  Changed files: %s\n", strings.Join(files, ", "))
+		}
+		b.WriteString("\n")
+	}
+
+	b.WriteString("After merging all branches, run: go build ./... && go test ./... -race -count=1\n")
+	b.WriteString("If a test fails after merging, fix the issue before proceeding to the next branch.\n")
+	b.WriteString("If any merge cannot be resolved, stop and report which branch failed and why.\n")
+
+	return b.String()
+}
+
+// isBranchMerged checks if a branch has been merged into HEAD.
+func isBranchMerged(ctx context.Context, repoDir, branch string) bool {
+	cmd := exec.CommandContext(ctx, "git", "branch", "--merged", "HEAD")
+	cmd.Dir = repoDir
+	out, err := cmd.Output()
+	if err != nil {
+		return false
+	}
+	for _, line := range strings.Split(string(out), "\n") {
+		if strings.TrimSpace(line) == branch {
+			return true
+		}
+	}
+	return false
 }
 
 // stripeRunners distributes primary runner assignments across available
