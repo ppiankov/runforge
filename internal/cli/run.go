@@ -1242,7 +1242,7 @@ func tailMergeLog(path string, offset int64, start time.Time) int64 {
 	if err != nil {
 		return offset
 	}
-	defer f.Close()
+	defer func() { _ = f.Close() }()
 
 	info, err := f.Stat()
 	if err != nil || info.Size() <= offset {
