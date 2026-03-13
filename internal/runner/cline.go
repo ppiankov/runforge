@@ -26,6 +26,7 @@ type clineEvent struct {
 
 // ClineRunner spawns Cline CLI processes and parses their JSON output.
 type ClineRunner struct {
+	model       string        // model override (--model flag)
 	env         []string      // additional env vars for the subprocess
 	idleTimeout time.Duration // kill task after this duration with no stdout events
 }
@@ -35,11 +36,9 @@ func NewClineRunner(idleTimeout time.Duration) *ClineRunner {
 	return &ClineRunner{idleTimeout: idleTimeout}
 }
 
-// NewClineRunnerWithProfile creates a ClineRunner with env overrides.
-// Cline does not support per-invocation model selection — model is
-// configured via `cline auth`.
-func NewClineRunnerWithProfile(env map[string]string, idleTimeout time.Duration) *ClineRunner {
-	return &ClineRunner{env: MapToEnvSlice(env), idleTimeout: idleTimeout}
+// NewClineRunnerWithProfile creates a ClineRunner with model and env overrides.
+func NewClineRunnerWithProfile(model string, env map[string]string, idleTimeout time.Duration) *ClineRunner {
+	return &ClineRunner{model: model, env: MapToEnvSlice(env), idleTimeout: idleTimeout}
 }
 
 // Name returns the runner identifier.
@@ -58,8 +57,11 @@ func (r *ClineRunner) Run(ctx context.Context, t *task.Task, repoDir, outputDir 
 		"-a",          // act mode (not plan)
 		"--json",      // JSON output format
 		"-c", repoDir, // working directory
-		t.Prompt,
 	}
+	if r.model != "" {
+		args = append(args, "--model", r.model)
+	}
+	args = append(args, t.Prompt)
 
 	slog.Debug("spawning cline", "task", t.ID, "repo", t.Repo, "dir", repoDir)
 

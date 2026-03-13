@@ -267,7 +267,7 @@ func buildRunnerRegistry(tf *task.TaskFile, idleTimeout time.Duration) (map[stri
 		case "opencode":
 			runners[name] = runner.NewOpencodeRunnerWithProfile(profile.Model, resolved, idleTimeout)
 		case "cline":
-			runners[name] = runner.NewClineRunnerWithProfile(resolved, idleTimeout)
+			runners[name] = runner.NewClineRunnerWithProfile(profile.Model, resolved, idleTimeout)
 		case "qwen":
 			runners[name] = runner.NewQwenRunnerWithProfile(profile.Model, resolved, idleTimeout)
 		case "script":
