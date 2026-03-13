@@ -1141,8 +1141,32 @@ func runMergeResolve(
 	}
 	defer runner.Release(repoDir)
 
+	// live tail — stream runner stderr to stdout so the user sees agent progress
+	resolveStart := time.Now()
+	tickDone := make(chan struct{})
+	stderrPath := filepath.Join(outputDir, "stderr.log")
+	go func() {
+		ticker := time.NewTicker(2 * time.Second)
+		defer ticker.Stop()
+		var offset int64
+		for {
+			select {
+			case <-tickDone:
+				return
+			case <-ticker.C:
+				offset = tailMergeLog(stderrPath, offset, resolveStart)
+			}
+		}
+	}()
+
 	result := RunWithCascade(ctx, resolveTask, repoDir, outputDir, runners, cascade,
-		cfg.maxRuntime, cfg.maxRetries, blacklist, graylist, limiter, nil)
+		cfg.maxRuntime, cfg.maxRetries, blacklist, graylist, limiter,
+		func(runnerName string) {
+			fmt.Fprintf(os.Stdout, "  merge-resolve: using runner %q\n", runnerName)
+		})
+	close(tickDone)
+	// flush remaining output
+	tailMergeLog(stderrPath, 0, resolveStart)
 
 	if result.State == task.StateCompleted {
 		// verify which branches were merged and clean them up
@@ -1203,6 +1227,42 @@ func isBranchMerged(ctx context.Context, repoDir, branch string) bool {
 		}
 	}
 	return false
+}
+
+// tailMergeLog reads new lines from the merge-resolve stderr log and prints
+// them to stdout with a prefix. Returns the new file offset.
+func tailMergeLog(path string, offset int64, start time.Time) int64 {
+	f, err := os.Open(path)
+	if err != nil {
+		return offset
+	}
+	defer f.Close()
+
+	info, err := f.Stat()
+	if err != nil || info.Size() <= offset {
+		return offset
+	}
+
+	if _, err := f.Seek(offset, 0); err != nil {
+		return offset
+	}
+
+	buf := make([]byte, info.Size()-offset)
+	n, err := f.Read(buf)
+	if err != nil || n == 0 {
+		return offset
+	}
+
+	lines := strings.Split(strings.TrimRight(string(buf[:n]), "\n"), "\n")
+	elapsed := time.Since(start).Truncate(time.Second)
+	for _, line := range lines {
+		line = strings.TrimSpace(line)
+		if line == "" {
+			continue
+		}
+		fmt.Fprintf(os.Stdout, "  [%s] %s\n", elapsed, line)
+	}
+	return offset + int64(n)
 }
 
 // stripeRunners distributes primary runner assignments across available
