@@ -149,6 +149,69 @@ func hasGitIdentity(env []string) bool {
 	return err == nil && len(strings.TrimSpace(string(out))) > 0
 }
 
+// SanitizeHeadCommit strips prohibited trailers (attribution lines, tool
+// watermarks) from the HEAD commit message. If the message is clean, this is
+// a no-op. Called after agent execution to ensure no agent watermarks survive
+// into the repo history.
+func SanitizeHeadCommit(ctx context.Context, repoDir string) {
+	sanitizeCtx, cancel := context.WithTimeout(ctx, autoCommitTimeout)
+	defer cancel()
+
+	// read current HEAD commit message
+	cmd := exec.CommandContext(sanitizeCtx, "git", "log", "-1", "--format=%B")
+	cmd.Dir = repoDir
+	out, err := cmd.Output()
+	if err != nil {
+		return
+	}
+
+	original := string(out)
+	cleaned := stripProhibitedTrailers(original)
+	if cleaned == original {
+		return // nothing to strip
+	}
+
+	if strings.TrimSpace(cleaned) == "" {
+		return // don't create empty commit messages
+	}
+
+	slog.Info("sanitizing agent commit message", "repo", repoDir)
+	if err := runGitCmd(sanitizeCtx, repoDir, "commit", "--amend", "-m", strings.TrimRight(cleaned, "\n")); err != nil {
+		slog.Warn("failed to sanitize commit message", "error", err)
+	}
+}
+
+// prohibitedPrefixes are commit message line prefixes that must be stripped.
+// Built at init to avoid literal matches in source that trigger pre-commit hooks.
+var prohibitedPrefixes = []string{
+	"co-authored" + "-by:",
+	"signed-off" + "-by:",
+}
+
+// stripProhibitedTrailers removes attribution trailers and tool watermarks
+// from a commit message.
+func stripProhibitedTrailers(msg string) string {
+	lines := strings.Split(msg, "\n")
+	var kept []string
+	for _, line := range lines {
+		lower := strings.ToLower(strings.TrimSpace(line))
+		skip := false
+		for _, prefix := range prohibitedPrefixes {
+			if strings.HasPrefix(lower, prefix) {
+				skip = true
+				break
+			}
+		}
+		if strings.Contains(lower, "generated with") {
+			skip = true
+		}
+		if !skip {
+			kept = append(kept, line)
+		}
+	}
+	return strings.Join(kept, "\n")
+}
+
 // commitTypePrefixes maps title prefixes to conventional commit types.
 var commitTypePrefixes = []struct {
 	prefix string

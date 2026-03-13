@@ -613,6 +613,11 @@ func executeRun(cfg execRunConfig) (*execRunResult, error) {
 			func(runnerName string) { sched.SetRunnerUsed(t.ID, runnerName) },
 		)
 
+		// sanitize agent commit messages — strip attribution and watermark trailers
+		if result.State == task.StateCompleted {
+			runner.SanitizeHeadCommit(ctx, execDir)
+		}
+
 		// auto-commit uncommitted changes for successful tasks
 		if result.State == task.StateCompleted && !cfg.noAutoCommit {
 			committed, err := runner.AutoCommit(ctx, execDir, t)

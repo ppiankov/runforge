@@ -54,10 +54,10 @@ func (r *ClineRunner) Run(ctx context.Context, t *task.Task, repoDir, outputDir 
 	}
 
 	args := []string{
-		"-y",        // yolo mode: auto-approve all actions
-		"-o",        // oneshot: full autonomous mode
-		"-m", "act", // action mode (not plan)
-		"-F", "json", // JSON output format
+		"-y",          // yolo mode: auto-approve all actions
+		"-a",          // act mode (not plan)
+		"--json",      // JSON output format
+		"-c", repoDir, // working directory
 		t.Prompt,
 	}
 
