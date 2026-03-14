@@ -123,7 +123,7 @@ func (r *OpencodeRunner) Run(ctx context.Context, t *task.Task, repoDir, outputD
 	idleReader := newIdleTimeoutReader(stdout, r.idleTimeout, idleCancel)
 	defer idleReader.Stop()
 
-	failed, lastMsg, tokens := parseOpencodeEvents(idleReader, outputDir)
+	failed, eventCount, lastMsg, tokens := parseOpencodeEvents(idleReader, outputDir)
 
 	exitErr := cmd.Wait()
 	end := time.Now()
@@ -166,10 +166,15 @@ func (r *OpencodeRunner) Run(ctx context.Context, t *task.Task, repoDir, outputD
 		result.State = task.StateFailed
 		result.Error = "opencode reported error"
 	} else if exitErr != nil {
+		// exit code is unreliable — log but don't fail if events were parsed
 		slog.Warn("opencode exited with error but no failure detected",
-			"task", t.ID, "error", exitErr)
-		result.State = task.StateFailed
-		result.Error = fmt.Sprintf("opencode exit: %v", exitErr)
+			"task", t.ID, "error", exitErr, "eventCount", eventCount)
+		if eventCount > 0 {
+			result.State = task.StateCompleted
+		} else {
+			result.State = task.StateFailed
+			result.Error = fmt.Sprintf("opencode exit: %v", exitErr)
+		}
 	} else {
 		result.State = task.StateCompleted
 	}
@@ -178,8 +183,8 @@ func (r *OpencodeRunner) Run(ctx context.Context, t *task.Task, repoDir, outputD
 }
 
 // parseOpencodeEvents reads JSON from OpenCode stdout and detects failures.
-// Returns (failed bool, lastMessage string, usage *task.TokenUsage).
-func parseOpencodeEvents(r io.Reader, outputDir string) (bool, string, *task.TokenUsage) {
+// Returns (failed bool, eventCount int, lastMessage string, usage *task.TokenUsage).
+func parseOpencodeEvents(r io.Reader, outputDir string) (bool, int, string, *task.TokenUsage) {
 	eventsFile, _ := os.Create(filepath.Join(outputDir, "events.jsonl"))
 	defer func() {
 		if eventsFile != nil {
@@ -193,6 +198,7 @@ func parseOpencodeEvents(r io.Reader, outputDir string) (bool, string, *task.Tok
 	var failed bool
 	var lastMsg string
 	var usage *task.TokenUsage
+	var eventCount int
 
 	for scanner.Scan() {
 		line := scanner.Bytes()
@@ -208,6 +214,7 @@ func parseOpencodeEvents(r io.Reader, outputDir string) (bool, string, *task.Tok
 			slog.Debug("unparseable json line", "error", err)
 			continue
 		}
+		eventCount++
 
 		if ev.Usage != nil {
 			usage = addUsage(usage, ev.Usage.InputTokens, ev.Usage.OutputTokens, ev.Usage.TotalTokens)
@@ -249,5 +256,5 @@ func parseOpencodeEvents(r io.Reader, outputDir string) (bool, string, *task.Tok
 		}
 	}
 
-	return failed, lastMsg, usage
+	return failed, eventCount, lastMsg, usage
 }

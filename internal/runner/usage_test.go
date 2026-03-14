@@ -108,7 +108,7 @@ func TestParseOpencodeEvents_WithUsage(t *testing.T) {
 	events := `{"type":"text","part":{"text":"hello"},"usage":{"input_tokens":300,"output_tokens":100,"total_tokens":400}}
 `
 	r := strings.NewReader(events)
-	_, _, usage := parseOpencodeEvents(r, t.TempDir())
+	_, _, _, usage := parseOpencodeEvents(r, t.TempDir())
 	if usage == nil {
 		t.Fatal("expected non-nil usage")
 	}
