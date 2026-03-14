@@ -1127,13 +1127,11 @@ func (m TUIModel) View() string {
 		dimStyle.Render("─") + "queue"
 	help := "  " + legend + "  " + helpStyle.Render(fmt.Sprintf(helpKeys, focusHint))
 
-	// Pad output to fill terminal height — prevents previous frame bleed-through.
-	output := combined + "\n" + help
-	outputLines := strings.Count(output, "\n") + 1
-	if outputLines < m.height {
-		output += strings.Repeat("\n", m.height-outputLines)
-	}
-	return output
+	// Place combined content in a full-screen frame to prevent bleed-through.
+	// lipgloss.Place pads every line to the target width and fills remaining
+	// height, ensuring every terminal cell is overwritten each frame.
+	body := combined + "\n" + help
+	return lipgloss.Place(m.width, m.height, lipgloss.Left, lipgloss.Top, body)
 }
 
 func panelBorderStyle(focused bool) lipgloss.Style {
@@ -1225,7 +1223,7 @@ func (m TUIModel) viewSinglePanel() string {
 		b.WriteString(helpStyle.Render("  ↑↓/jk: scroll  g/G: top/bottom  p: pause  q: quit"))
 	}
 
-	return b.String()
+	return lipgloss.Place(m.width, m.height, lipgloss.Left, lipgloss.Top, b.String())
 }
 
 // renderTaskContent builds the task panel content for the split layout.
@@ -1323,7 +1321,7 @@ func (m TUIModel) renderLogContent(panelHeight int) string {
 
 	maxW := m.width - 4 // borders + padding
 	for i := start; i < end; i++ {
-		line := m.logLines[i]
+		line := stripANSI(m.logLines[i])
 		if maxW > 0 && len(line) > maxW {
 			line = line[:maxW]
 		}
@@ -1374,7 +1372,7 @@ func (m TUIModel) renderDetailContent(panelHeight int) string {
 
 	maxW := m.width - 4
 	for i := start; i < end; i++ {
-		line := m.detailLines[i]
+		line := stripANSI(m.detailLines[i])
 		if maxW > 0 && len(line) > maxW {
 			line = line[:maxW]
 		}
