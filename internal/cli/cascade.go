@@ -172,10 +172,12 @@ func RunWithCascade(
 		switch result.State {
 		case task.StateRateLimited:
 			slog.Warn("runner rate-limited, trying next", "task", t.ID, "runner", name)
+			// temporary hold — skip this runner for the cascade but don't
+			// persist a blacklist entry that survives across runs
 			if !result.ResetsAt.IsZero() {
-				blacklist.Block(name, result.ResetsAt)
+				blacklist.TempBlock(name, result.ResetsAt)
 			} else {
-				blacklist.Block(name, time.Now().Add(1*time.Hour))
+				blacklist.TempBlock(name, time.Now().Add(15*time.Minute))
 			}
 			continue
 

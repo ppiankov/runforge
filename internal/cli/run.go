@@ -487,7 +487,7 @@ func executeRun(cfg execRunConfig) (*execRunResult, error) {
 	signal.Notify(sigCh, os.Interrupt)
 	go func() {
 		<-sigCh
-		fmt.Fprintln(os.Stderr, "\ninterrupted — waiting for running tasks to finish...")
+		slog.Warn("interrupted — waiting for running tasks to finish")
 		cancel()
 	}()
 

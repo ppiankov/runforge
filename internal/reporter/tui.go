@@ -1041,7 +1041,7 @@ func (m TUIModel) View() string {
 		rlStyle.Render("⏳") + "wait " +
 		doneStyle.Render("✓") + "done " +
 		failedStyle.Render("✗") + "fail " +
-		rlStyle.Render("⏸") + "rl " +
+		rlStyle.Render("⏸") + "rate-limit " +
 		dimStyle.Render("─") + "queue"
 	help := "  " + legend + "  " + helpStyle.Render(fmt.Sprintf(helpKeys, focusHint))
 

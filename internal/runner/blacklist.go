@@ -87,6 +87,19 @@ func (b *RunnerBlacklist) Block(runner string, until time.Time) {
 	b.saveLocked()
 }
 
+// TempBlock marks a runner as blocked until the given time but does NOT
+// persist to disk. Use for transient conditions like rate limits that
+// should not survive across runs.
+func (b *RunnerBlacklist) TempBlock(runner string, until time.Time) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	if existing, ok := b.until[runner]; ok && existing.After(until) {
+		return
+	}
+	b.until[runner] = until
+	// no saveLocked — intentionally ephemeral
+}
+
 // IsBlocked returns true if the runner is currently blocked.
 func (b *RunnerBlacklist) IsBlocked(runner string) bool {
 	b.mu.RLock()
