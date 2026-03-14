@@ -539,6 +539,14 @@ func executeRun(cfg execRunConfig) (*execRunResult, error) {
 
 	secretRepos := cfg.secretRepos
 
+	// apply shared prompt conventions at runtime so exported/manual task packs
+	// get the same quality rules as tasks produced by `generate`
+	promptConventions := ""
+	if cfg.settings != nil {
+		promptConventions = cfg.settings.PromptConventions
+	}
+	injectPromptConventions(cfg.tasks, promptConventions, runners)
+
 	// inject commit instructions into all agent-bound prompts (safety net)
 	injectCommitInstructions(cfg.tasks, runners)
 
@@ -1646,6 +1654,30 @@ func autoGraylistRunners(results map[string]*task.TaskResult, graylist *runner.R
 		}
 	}
 	fmt.Fprintf(os.Stdout, "  Use 'tokencontrol graylist list' to view, 'tokencontrol graylist remove <runner>' to reinstate\n")
+}
+
+// injectPromptConventions appends shared config conventions to agent-bound task
+// prompts at runtime. This closes the gap for task packs that were not created
+// via `tokencontrol generate` (for example workledger exports or hand-written
+// phase files). Script runner tasks are skipped because their prompts are shell
+// commands, not agent instructions.
+func injectPromptConventions(tasks []task.Task, conventions string, runners map[string]runner.Runner) {
+	conventions = strings.TrimSpace(conventions)
+	if conventions == "" {
+		return
+	}
+
+	for i := range tasks {
+		if r, ok := runners[tasks[i].Runner]; ok {
+			if _, isScript := r.(*runner.ScriptRunner); isScript {
+				continue
+			}
+		}
+		if strings.Contains(tasks[i].Prompt, conventions) {
+			continue
+		}
+		tasks[i].Prompt += "\n\n" + conventions
+	}
 }
 
 // commitInstruction is appended to all agent-bound prompts to ensure agents

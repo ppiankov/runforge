@@ -798,6 +798,44 @@ func TestInjectCommitInstructions_AgentTasks(t *testing.T) {
 	}
 }
 
+func TestInjectPromptConventions_AgentTasks(t *testing.T) {
+	runners := map[string]runner.Runner{
+		"codex":  runner.NewCodexRunner(0),
+		"script": runner.NewScriptRunner(),
+	}
+	conventions := "MANDATORY:\n- write tests\n- handle edge cases"
+	tasks := []task.Task{
+		{ID: "t1", Runner: "codex", Prompt: "fix the bug"},
+		{ID: "t2", Runner: "script", Prompt: "make test"},
+	}
+
+	injectPromptConventions(tasks, conventions, runners)
+
+	if !strings.Contains(tasks[0].Prompt, conventions) {
+		t.Error("expected prompt conventions in codex task")
+	}
+	if strings.Contains(tasks[1].Prompt, conventions) {
+		t.Error("script task should not get prompt conventions")
+	}
+}
+
+func TestInjectPromptConventions_SkipsDuplicate(t *testing.T) {
+	runners := map[string]runner.Runner{
+		"codex": runner.NewCodexRunner(0),
+	}
+	conventions := "MANDATORY:\n- write tests"
+	tasks := []task.Task{
+		{ID: "t1", Runner: "codex", Prompt: "fix bug\n\nMANDATORY:\n- write tests"},
+	}
+	original := tasks[0].Prompt
+
+	injectPromptConventions(tasks, conventions, runners)
+
+	if tasks[0].Prompt != original {
+		t.Error("should not inject duplicate prompt conventions")
+	}
+}
+
 func TestInjectCommitInstructions_SkipsDuplicate(t *testing.T) {
 	runners := map[string]runner.Runner{
 		"codex": runner.NewCodexRunner(0),
