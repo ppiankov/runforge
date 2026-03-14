@@ -1037,7 +1037,13 @@ func (m TUIModel) View() string {
 	} else if m.focusedPanel == panelAgents {
 		helpKeys = "tab: switch [%s]  ↑↓/jk: cursor  g: graylist  w: whitelist  q: quit"
 	}
-	help := helpStyle.Render(fmt.Sprintf("  "+helpKeys, focusHint))
+	legend := runStyle.Render("●") + "run " +
+		rlStyle.Render("⏳") + "wait " +
+		doneStyle.Render("✓") + "done " +
+		failedStyle.Render("✗") + "fail " +
+		rlStyle.Render("⏸") + "rl " +
+		dimStyle.Render("─") + "queue"
+	help := "  " + legend + "  " + helpStyle.Render(fmt.Sprintf(helpKeys, focusHint))
 
 	return combined + "\n" + help
 }
@@ -1595,10 +1601,8 @@ func (m TUIModel) buildTaskLines() []string {
 
 func (m TUIModel) fmtFailed(res *task.TaskResult, t *task.Task, w colWidths) string {
 	icon := "✗"
-	label := "FAILED"
 	if res.State == task.StateSkipped {
 		icon = "⊘"
-		label = "skipped"
 	}
 	trail := cascadeTrail(res)
 	repo := repoShort(t)
@@ -1609,14 +1613,14 @@ func (m TUIModel) fmtFailed(res *task.TaskResult, t *task.Task, w colWidths) str
 	if len(errMsg) > 40 {
 		errMsg = errMsg[:40] + "..."
 	}
-	f := fmt.Sprintf("  %%s %%-10s %%-%ds %%-%ds %%-%ds %%s", w.id, w.runner, w.repo)
-	return failedStyle.Render(fmt.Sprintf(f, icon, label, res.TaskID, trail, repo, errMsg))
+	f := fmt.Sprintf("  %%s %%-%ds %%-%ds %%-%ds %%s", w.id, w.runner, w.repo)
+	return failedStyle.Render(fmt.Sprintf(f, icon, res.TaskID, trail, repo, errMsg))
 }
 
 func (m TUIModel) fmtWaiting(res *task.TaskResult, t *task.Task, w colWidths) string {
 	repo := repoShort(t)
-	f := fmt.Sprintf("  ⏳ %%-10s %%-%ds %%-%ds %%-%ds %%s", w.id, w.runner, w.repo)
-	return rlStyle.Render(fmt.Sprintf(f, "waiting", res.TaskID, "", repo, "repo lock"))
+	f := fmt.Sprintf("  ⏳ %%-%ds %%-%ds %%-%ds %%s", w.id, w.runner, w.repo)
+	return rlStyle.Render(fmt.Sprintf(f, res.TaskID, "", repo, "repo lock"))
 }
 
 func (m TUIModel) fmtRunning(res *task.TaskResult, t *task.Task, spinner string, w colWidths) string {
@@ -1641,7 +1645,7 @@ func (m TUIModel) fmtRunning(res *task.TaskResult, t *task.Task, spinner string,
 	if act, ok := m.activity[res.TaskID]; ok && act.lastAction != "" {
 		action = act.lastAction
 		// truncate to fit available width
-		maxAction := m.width - w.id - w.runner - w.repo - 35 // approximate fixed chars
+		maxAction := m.width - w.id - w.runner - w.repo - 25 // icon(2) + padding(4) + elapsed(8) + margin
 		if maxAction < 10 {
 			maxAction = 10
 		}
@@ -1651,8 +1655,8 @@ func (m TUIModel) fmtRunning(res *task.TaskResult, t *task.Task, spinner string,
 		action = dimStyle.Render(action)
 	}
 
-	f := fmt.Sprintf("  %%s %%-10s %%-%ds %%-%ds %%-%ds %%-8s", w.id, w.runner, w.repo)
-	base := fmt.Sprintf(f, " ", "running", res.TaskID, rn, repo, elapsed)
+	f := fmt.Sprintf("  %%s %%-%ds %%-%ds %%-%ds %%-8s", w.id, w.runner, w.repo)
+	base := fmt.Sprintf(f, " ", res.TaskID, rn, repo, elapsed)
 	// replace leading space with colored spinner (raw string to avoid double-style)
 	return coloredSpinner + runStyle.Render(base[1:]) + " " + action
 }
@@ -1669,8 +1673,8 @@ func (m TUIModel) fmtDone(res *task.TaskResult, t *task.Task, w colWidths) strin
 	if res.Remediated {
 		suffix = rlStyle.Render("fixed:"+res.RemediatedBy) + " " + tokens
 	}
-	f := fmt.Sprintf("  ✓ %%-10s %%-%ds %%-%ds %%-%ds %%-8s %%s", w.id, w.runner, w.repo)
-	return doneStyle.Render(fmt.Sprintf(f, "done", res.TaskID, rn, repo, dur, suffix))
+	f := fmt.Sprintf("  ✓ %%-%ds %%-%ds %%-%ds %%-8s %%s", w.id, w.runner, w.repo)
+	return doneStyle.Render(fmt.Sprintf(f, res.TaskID, rn, repo, dur, suffix))
 }
 
 func (m TUIModel) fmtRateLimited(res *task.TaskResult, t *task.Task, w colWidths) string {
@@ -1683,8 +1687,8 @@ func (m TUIModel) fmtRateLimited(res *task.TaskResult, t *task.Task, w colWidths
 		}
 	}
 	rn := res.RunnerUsed
-	f := fmt.Sprintf("  ⏸ %%-10s %%-%ds %%-%ds %%-%ds %%s", w.id, w.runner, w.repo)
-	return rlStyle.Render(fmt.Sprintf(f, "rate-limit", res.TaskID, rn, repo, info))
+	f := fmt.Sprintf("  ⏸ %%-%ds %%-%ds %%-%ds %%s", w.id, w.runner, w.repo)
+	return rlStyle.Render(fmt.Sprintf(f, res.TaskID, rn, repo, info))
 }
 
 func (m TUIModel) fmtQueued(t *task.Task, w colWidths) string {
@@ -1697,8 +1701,8 @@ func (m TUIModel) fmtQueued(t *task.Task, w colWidths) string {
 	if t != nil {
 		id = t.ID
 	}
-	f := fmt.Sprintf("  ─ %%-10s %%-%ds %%-%ds %%-%ds %%s", w.id, w.runner, w.repo)
-	return dimStyle.Render(fmt.Sprintf(f, "queued", id, "", repo, dep))
+	f := fmt.Sprintf("  ─ %%-%ds %%-%ds %%-%ds %%s", w.id, w.runner, w.repo)
+	return dimStyle.Render(fmt.Sprintf(f, id, "", repo, dep))
 }
 
 func (m TUIModel) progressLine(done, running, failed, rateLimited, queued int) string {
