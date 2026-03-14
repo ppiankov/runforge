@@ -8,6 +8,66 @@ import (
 	"testing"
 )
 
+func TestPrepareCodexHome_IsolatesSystemSkills(t *testing.T) {
+	sharedHome := t.TempDir()
+	sharedSkills := filepath.Join(sharedHome, "skills")
+	if err := os.MkdirAll(filepath.Join(sharedSkills, ".system"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(sharedSkills, "workledger"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(sharedHome, "vendor_imports"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	for _, name := range []string{"auth.json", "config.toml", "AGENTS.md"} {
+		if err := os.WriteFile(filepath.Join(sharedHome, name), []byte(name), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	t.Setenv("CODEX_HOME", sharedHome)
+
+	isolatedHome, err := prepareCodexHome(t.TempDir())
+	if err != nil {
+		t.Fatalf("prepareCodexHome: %v", err)
+	}
+
+	for _, name := range []string{"auth.json", "config.toml", "AGENTS.md"} {
+		path := filepath.Join(isolatedHome, name)
+		info, err := os.Lstat(path)
+		if err != nil {
+			t.Fatalf("expected %s link: %v", name, err)
+		}
+		if info.Mode()&os.ModeSymlink == 0 {
+			t.Fatalf("%s should be a symlink", name)
+		}
+	}
+
+	if _, err := os.Lstat(filepath.Join(isolatedHome, "skills", "workledger")); err != nil {
+		t.Fatalf("expected user skill link: %v", err)
+	}
+	if _, err := os.Lstat(filepath.Join(isolatedHome, "vendor_imports")); err != nil {
+		t.Fatalf("expected vendor_imports link: %v", err)
+	}
+	if _, err := os.Lstat(filepath.Join(isolatedHome, "skills", ".system")); !os.IsNotExist(err) {
+		t.Fatalf("expected isolated skills to exclude .system, got err=%v", err)
+	}
+}
+
+func TestAppendOrReplaceEnv(t *testing.T) {
+	env := []string{"PATH=/usr/bin", "CODEX_HOME=/old"}
+	got := appendOrReplaceEnv(env, "CODEX_HOME", "/new")
+	if got[1] != "CODEX_HOME=/new" {
+		t.Fatalf("expected CODEX_HOME replacement, got %v", got)
+	}
+
+	got = appendOrReplaceEnv([]string{"PATH=/usr/bin"}, "CODEX_HOME", "/new")
+	if got[len(got)-1] != "CODEX_HOME=/new" {
+		t.Fatalf("expected CODEX_HOME append, got %v", got)
+	}
+}
+
 func TestParseEvents_Success(t *testing.T) {
 	events := []Event{
 		{Type: EventThreadStarted},

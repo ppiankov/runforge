@@ -43,6 +43,10 @@ func (r *CodexRunner) Run(ctx context.Context, t *task.Task, repoDir, outputDir 
 	if err := os.MkdirAll(outputDir, 0o755); err != nil {
 		return failedResult(t.ID, start, fmt.Sprintf("create output dir: %v", err))
 	}
+	codexHome, err := prepareCodexHome(outputDir)
+	if err != nil {
+		return failedResult(t.ID, start, fmt.Sprintf("prepare codex home: %v", err))
+	}
 
 	outputFile := filepath.Join(outputDir, "output.md")
 
@@ -70,9 +74,8 @@ func (r *CodexRunner) Run(ctx context.Context, t *task.Task, repoDir, outputDir 
 	cmd := exec.CommandContext(idleCtx, "codex", args...)
 	setupProcessGroup(cmd)
 	cmd.Dir = repoDir
-	if len(r.env) > 0 {
-		cmd.Env = append(SanitizedEnv(), r.env...)
-	}
+	cmd.Env = append(SanitizedEnv(), r.env...)
+	cmd.Env = appendOrReplaceEnv(cmd.Env, "CODEX_HOME", codexHome)
 	rlw := newRateLimitWriter(newLogWriter(outputDir, "stderr.log"), idleCancel)
 	hw := newHealthWriter(rlw, idleCancel)
 	cmd.Stderr = hw
@@ -243,4 +246,95 @@ func newLogWriter(dir, name string) io.Writer {
 		return io.Discard
 	}
 	return f
+}
+
+// prepareCodexHome creates an isolated CODEX_HOME for a single task run.
+// This avoids shared ~/.codex system-skill installation races when multiple
+// Codex subprocesses start in parallel, while preserving auth/config and
+// user-installed skills from the shared home.
+func prepareCodexHome(outputDir string) (string, error) {
+	sharedHome, err := sharedCodexHome()
+	if err != nil {
+		return "", err
+	}
+
+	isolatedHome := filepath.Join(outputDir, "codex-home")
+	if err := os.MkdirAll(isolatedHome, 0o755); err != nil {
+		return "", fmt.Errorf("mkdir isolated home: %w", err)
+	}
+
+	for _, name := range []string{"auth.json", "config.toml", "AGENTS.md"} {
+		if err := symlinkIfExists(filepath.Join(sharedHome, name), filepath.Join(isolatedHome, name)); err != nil {
+			return "", err
+		}
+	}
+	if err := symlinkIfExists(filepath.Join(sharedHome, "vendor_imports"), filepath.Join(isolatedHome, "vendor_imports")); err != nil {
+		return "", err
+	}
+
+	sharedSkills := filepath.Join(sharedHome, "skills")
+	entries, err := os.ReadDir(sharedSkills)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return isolatedHome, nil
+		}
+		return "", fmt.Errorf("read shared skills: %w", err)
+	}
+
+	isolatedSkills := filepath.Join(isolatedHome, "skills")
+	if err := os.MkdirAll(isolatedSkills, 0o755); err != nil {
+		return "", fmt.Errorf("mkdir isolated skills: %w", err)
+	}
+
+	for _, entry := range entries {
+		if entry.Name() == ".system" {
+			continue
+		}
+		if err := symlinkIfExists(filepath.Join(sharedSkills, entry.Name()), filepath.Join(isolatedSkills, entry.Name())); err != nil {
+			return "", err
+		}
+	}
+
+	return isolatedHome, nil
+}
+
+func sharedCodexHome() (string, error) {
+	if home := os.Getenv("CODEX_HOME"); home != "" {
+		return home, nil
+	}
+	userHome, err := os.UserHomeDir()
+	if err != nil {
+		return "", fmt.Errorf("resolve user home: %w", err)
+	}
+	return filepath.Join(userHome, ".codex"), nil
+}
+
+func symlinkIfExists(target, link string) error {
+	if _, err := os.Lstat(target); err != nil {
+		if os.IsNotExist(err) {
+			return nil
+		}
+		return fmt.Errorf("stat %s: %w", target, err)
+	}
+	if _, err := os.Lstat(link); err == nil {
+		return nil
+	} else if !os.IsNotExist(err) {
+		return fmt.Errorf("stat %s: %w", link, err)
+	}
+	if err := os.Symlink(target, link); err != nil {
+		return fmt.Errorf("symlink %s -> %s: %w", link, target, err)
+	}
+	return nil
+}
+
+func appendOrReplaceEnv(environ []string, key, value string) []string {
+	prefix := key + "="
+	entry := prefix + value
+	for i := range environ {
+		if len(environ[i]) >= len(prefix) && environ[i][:len(prefix)] == prefix {
+			environ[i] = entry
+			return environ
+		}
+	}
+	return append(environ, entry)
 }
