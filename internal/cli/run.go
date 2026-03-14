@@ -468,8 +468,11 @@ func executeRun(cfg execRunConfig) (*execRunResult, error) {
 	isTTY := isTerminal()
 	textRep := reporter.NewTextReporter(os.Stdout, isTTY)
 
-	// prepare run directory
-	runDir := filepath.Join(".tokencontrol", time.Now().Format("20060102-150405"))
+	// prepare run directory (absolute path so subprocess CODEX_HOME resolves correctly)
+	runDir, err := filepath.Abs(filepath.Join(".tokencontrol", time.Now().Format("20060102-150405")))
+	if err != nil {
+		return nil, fmt.Errorf("resolve run dir: %w", err)
+	}
 	if err := os.MkdirAll(runDir, 0o755); err != nil {
 		return nil, fmt.Errorf("create run dir: %w", err)
 	}
