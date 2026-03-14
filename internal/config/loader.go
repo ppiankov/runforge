@@ -247,7 +247,7 @@ func validateStructure(tf *task.TaskFile) error {
 	}
 
 	// validate runner profiles
-	knownTypes := map[string]struct{}{"codex": {}, "claude": {}, "gemini": {}, "opencode": {}, "script": {}}
+	knownTypes := map[string]struct{}{"codex": {}, "claude": {}, "gemini": {}, "opencode": {}, "qwen": {}, "cline": {}, "script": {}}
 	knownRunners := map[string]struct{}{"codex": {}, "claude": {}, "gemini": {}, "opencode": {}, "cline": {}, "qwen": {}, "script": {}}
 	for name, profile := range tf.Runners {
 		if profile.Type == "" {
