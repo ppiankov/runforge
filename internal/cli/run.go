@@ -46,6 +46,7 @@ func newRunCmd() *cobra.Command {
 		noAutoCommit   bool
 		parallelRepo   bool
 		noMergeResolve bool
+		noVerify       bool
 		maxRetries     int
 
 		strictReadiness bool
@@ -107,13 +108,17 @@ func newRunCmd() *cobra.Command {
 				Enforce:         codexQuotaEnforce,
 				LookbackRuns:    codexQuotaLookback,
 			}
+			if noVerify {
+				verify = false
+			}
 			return runTasks(tasksFile, workers, verify, reposDir, filter, dryRun, maxRuntime, idleTimeout, failFast, tuiMode, allowFree, retry, noAutoCommit, parallelRepo, noMergeResolve, strictReadiness, maxRetries, quotaCfg, cfg)
 		},
 	}
 
 	cmd.Flags().StringVar(&tasksFile, "tasks", "tokencontrol.json", "path to tasks JSON file (supports glob patterns)")
 	cmd.Flags().IntVar(&workers, "workers", 4, "max parallel runner processes")
-	cmd.Flags().BoolVar(&verify, "verify", false, "run make test && make lint per repo after completion")
+	cmd.Flags().BoolVar(&verify, "verify", true, "run make test && make lint per repo after completion")
+	cmd.Flags().BoolVar(&noVerify, "no-verify", false, "disable post-run verification")
 	cmd.Flags().StringVar(&reposDir, "repos-dir", ".", "base directory containing repos")
 	cmd.Flags().StringVar(&filter, "filter", "", "only run tasks matching ID glob pattern")
 	cmd.Flags().BoolVar(&dryRun, "dry-run", false, "show execution plan without running")
@@ -1437,47 +1442,85 @@ func resolveProxyConfig(pc *config.ProxyConfig) (neurorouter.ProxyConfig, error)
 	return cfg, nil
 }
 
-// autoGraylistRunners scans results for false positives and auto-graylists
-// the responsible runner+model pairs. Prints a summary of actions taken.
+// autoGraylistRunners scans results for false positives and build failures,
+// then auto-graylists the responsible runner+model pairs.
 func autoGraylistRunners(results map[string]*task.TaskResult, graylist *runner.RunnerGraylist, profiles map[string]*task.RunnerProfileConfig, runID string) {
 	if graylist == nil {
 		return
 	}
 
-	// collect runner+model pairs that produced false positives
 	type key struct{ runner, model string }
-	counts := make(map[key]int)
+	fpCounts := make(map[key]int)   // false positive counts
+	buildFails := make(map[key]int) // build verification failure counts
+
 	for _, res := range results {
+		// false positives on final result
 		if res.FalsePositive && res.RunnerUsed != "" {
 			model := ""
 			if p, ok := profiles[res.RunnerUsed]; ok {
 				model = p.Model
 			}
-			counts[key{res.RunnerUsed, model}]++
+			fpCounts[key{res.RunnerUsed, model}]++
+		}
+
+		// build failures from cascade attempts (runner produced code that doesn't compile)
+		for _, a := range res.Attempts {
+			if a.State == task.StateFailed && strings.Contains(a.Error, "build verification failed") {
+				model := ""
+				if p, ok := profiles[a.Runner]; ok {
+					model = p.Model
+				}
+				buildFails[key{a.Runner, model}]++
+			}
 		}
 	}
 
-	if len(counts) == 0 {
+	if len(fpCounts) == 0 && len(buildFails) == 0 {
 		return
 	}
 
-	fmt.Fprintf(os.Stdout, "\nFalse positives detected:\n")
-	for k, count := range counts {
-		// refuse to auto-graylist with empty model — wildcard would block entire provider
+	// merge all quality signals
+	type signal struct {
+		fp    int
+		build int
+	}
+	merged := make(map[key]*signal)
+	for k, c := range fpCounts {
+		if merged[k] == nil {
+			merged[k] = &signal{}
+		}
+		merged[k].fp = c
+	}
+	for k, c := range buildFails {
+		if merged[k] == nil {
+			merged[k] = &signal{}
+		}
+		merged[k].build = c
+	}
+
+	fmt.Fprintf(os.Stdout, "\nQuality issues detected:\n")
+	for k, s := range merged {
 		if k.model == "" {
 			slog.Warn("skipping auto-graylist: no model in runner profile",
-				"runner", k.runner, "false_positives", count)
-			fmt.Fprintf(os.Stdout, "  %s: %d false positives but no model in profile — add model to runner profile for auto-graylist\n",
-				k.runner, count)
+				"runner", k.runner, "false_positives", s.fp, "build_failures", s.build)
+			fmt.Fprintf(os.Stdout, "  %s: quality issues but no model in profile — add model for auto-graylist\n", k.runner)
 			continue
 		}
-		reason := fmt.Sprintf("false positive: %d tasks with 0 events in run %s", count, runID)
+
+		var reasons []string
+		if s.fp > 0 {
+			reasons = append(reasons, fmt.Sprintf("%d false positives", s.fp))
+		}
+		if s.build > 0 {
+			reasons = append(reasons, fmt.Sprintf("%d build failures", s.build))
+		}
+		reason := fmt.Sprintf("quality: %s in run %s", strings.Join(reasons, ", "), runID)
 		label := k.runner + " (model: " + k.model + ")"
 		if !graylist.IsGraylisted(k.runner, k.model) {
 			graylist.Add(k.runner, k.model, reason)
-			fmt.Fprintf(os.Stdout, "  graylisted %s (%d tasks, 0 events)\n", label, count)
+			fmt.Fprintf(os.Stdout, "  graylisted %s (%s)\n", label, strings.Join(reasons, ", "))
 		} else {
-			fmt.Fprintf(os.Stdout, "  %s already graylisted (%d more false positives)\n", label, count)
+			fmt.Fprintf(os.Stdout, "  %s already graylisted (%s)\n", label, strings.Join(reasons, ", "))
 		}
 	}
 	fmt.Fprintf(os.Stdout, "  Use 'tokencontrol graylist list' to view, 'tokencontrol graylist remove <runner>' to reinstate\n")

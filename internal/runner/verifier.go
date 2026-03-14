@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"time"
 )
 
@@ -81,6 +82,38 @@ func runMake(ctx context.Context, dir, target string) (string, error) {
 
 	err := cmd.Run()
 	return out.String(), err
+}
+
+// QuickVerify runs a fast build check on the repo after task completion.
+// Returns nil if the build succeeds or if the repo is not a Go project.
+// This is a structural quality gate — it catches broken code regardless of
+// what the agent did, allowing the cascade to try the next runner.
+func QuickVerify(ctx context.Context, repoDir string) error {
+	// only verify Go projects
+	if _, err := os.Stat(filepath.Join(repoDir, "go.mod")); err != nil {
+		return nil
+	}
+
+	ctx, cancel := context.WithTimeout(ctx, 2*time.Minute)
+	defer cancel()
+
+	cmd := exec.CommandContext(ctx, "go", "build", "./...")
+	setupProcessGroup(cmd)
+	cmd.Dir = repoDir
+
+	var out bytes.Buffer
+	cmd.Stdout = &out
+	cmd.Stderr = &out
+
+	if err := cmd.Run(); err != nil {
+		// truncate output for readability
+		msg := out.String()
+		if len(msg) > 200 {
+			msg = msg[:200] + "..."
+		}
+		return fmt.Errorf("%s: %w", strings.TrimSpace(msg), err)
+	}
+	return nil
 }
 
 // repoName extracts the repo name from "owner/name".
