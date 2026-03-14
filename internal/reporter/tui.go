@@ -934,6 +934,10 @@ func readLastLine(path string) string {
 	for i := len(lines) - 1; i >= 0; i-- {
 		line := strings.TrimSpace(lines[i])
 		if line != "" {
+			line = sanitizeAction(line)
+			if line == "" {
+				continue
+			}
 			if len(line) > 60 {
 				line = line[:60]
 			}
@@ -941,6 +945,83 @@ func readLastLine(path string) string {
 		}
 	}
 	return ""
+}
+
+// sanitizeAction shortens or removes verbose boilerplate from agent CLI stderr.
+// Returns "" to skip the line entirely.
+func sanitizeAction(line string) string {
+	lower := strings.ToLower(line)
+
+	// skip blank/control lines
+	if strings.TrimSpace(line) == "" {
+		return ""
+	}
+
+	// gemini verbose banners
+	if strings.Contains(lower, "yolo mode") {
+		return "yolo mode"
+	}
+	if strings.Contains(lower, "all tool calls will be automatically") {
+		return ""
+	}
+
+	// opencode/kilo context window warnings
+	if strings.Contains(lower, "requires a larger context window") {
+		return "context window warning"
+	}
+	if strings.Contains(lower, "see context length for more") {
+		return ""
+	}
+
+	// claude verbose init
+	if strings.Contains(lower, "model context protocol") {
+		return "loading MCP"
+	}
+
+	// codex sandbox messages
+	if strings.Contains(lower, "sandbox_permissions") {
+		return "sandbox setup"
+	}
+
+	// strip ANSI escape sequences
+	clean := stripANSI(line)
+	if clean != line {
+		line = clean
+	}
+
+	// strip slog-style timestamps: time=2026-... level=INFO msg="..."
+	if strings.HasPrefix(line, "time=") {
+		if idx := strings.Index(line, "msg="); idx >= 0 {
+			msg := line[idx+4:]
+			msg = strings.Trim(msg, "\"")
+			return msg
+		}
+	}
+
+	return line
+}
+
+// stripANSI removes ANSI escape sequences from a string.
+func stripANSI(s string) string {
+	var out strings.Builder
+	i := 0
+	for i < len(s) {
+		if s[i] == '\x1b' && i+1 < len(s) && s[i+1] == '[' {
+			// skip until terminator letter
+			j := i + 2
+			for j < len(s) && (s[j] < 'A' || s[j] > 'Z') && (s[j] < 'a' || s[j] > 'z') {
+				j++
+			}
+			if j < len(s) {
+				j++ // skip terminator
+			}
+			i = j
+			continue
+		}
+		out.WriteByte(s[i])
+		i++
+	}
+	return out.String()
 }
 
 // activityAge returns how long since the task last produced output.
