@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"sort"
 	"strings"
 	"time"
 
@@ -506,26 +507,26 @@ func (m *TUIModel) taskCursorUp() {
 }
 
 // orderedAgents returns the list of agent names for cursor navigation.
+// The order is deterministic: ANCC agents first (in discovery order),
+// then any additional runners from stats (sorted alphabetically).
 func (m TUIModel) orderedAgents() []string {
 	var names []string
+	seen := make(map[string]struct{})
 	if m.agentPool != nil {
 		for _, a := range m.agentPool.Agents {
 			names = append(names, a.Name)
+			seen[a.Name] = struct{}{}
 		}
 	}
 	stats := m.agentStats()
+	var extra []string
 	for name := range stats {
-		found := false
-		for _, n := range names {
-			if n == name {
-				found = true
-				break
-			}
-		}
-		if !found {
-			names = append(names, name)
+		if _, ok := seen[name]; !ok {
+			extra = append(extra, name)
 		}
 	}
+	sort.Strings(extra)
+	names = append(names, extra...)
 	return names
 }
 
@@ -1045,7 +1046,13 @@ func (m TUIModel) View() string {
 		dimStyle.Render("─") + "queue"
 	help := "  " + legend + "  " + helpStyle.Render(fmt.Sprintf(helpKeys, focusHint))
 
-	return combined + "\n" + help
+	// Pad output to fill terminal height — prevents previous frame bleed-through.
+	output := combined + "\n" + help
+	outputLines := strings.Count(output, "\n") + 1
+	if outputLines < m.height {
+		output += strings.Repeat("\n", m.height-outputLines)
+	}
+	return output
 }
 
 func panelBorderStyle(focused bool) lipgloss.Style {
