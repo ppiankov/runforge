@@ -58,7 +58,7 @@ func TestParseEvents_WithUsage(t *testing.T) {
 {"type":"turn.completed","usage":{"input_tokens":200,"output_tokens":100,"total_tokens":300}}
 `
 	r := strings.NewReader(events)
-	_, _, usage := parseEvents(r, t.TempDir())
+	_, _, _, usage := parseEvents(r, t.TempDir())
 	if usage == nil {
 		t.Fatal("expected non-nil usage")
 	}
@@ -78,7 +78,7 @@ func TestParseEvents_NoUsage(t *testing.T) {
 {"type":"turn.completed"}
 `
 	r := strings.NewReader(events)
-	_, _, usage := parseEvents(r, t.TempDir())
+	_, _, _, usage := parseEvents(r, t.TempDir())
 	if usage != nil {
 		t.Errorf("expected nil usage when no usage events, got %+v", usage)
 	}

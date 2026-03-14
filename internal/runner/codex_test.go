@@ -78,7 +78,7 @@ func TestParseEvents_Success(t *testing.T) {
 	}
 
 	r := eventsToReader(t, events)
-	failed, lastMsg, _ := parseEvents(r, t.TempDir())
+	failed, _, lastMsg, _ := parseEvents(r, t.TempDir())
 
 	if failed {
 		t.Error("expected success, got failed")
@@ -96,7 +96,7 @@ func TestParseEvents_Failure(t *testing.T) {
 	}
 
 	r := eventsToReader(t, events)
-	failed, _, _ := parseEvents(r, t.TempDir())
+	failed, _, _, _ := parseEvents(r, t.TempDir())
 
 	if !failed {
 		t.Error("expected failure, got success")
@@ -105,7 +105,7 @@ func TestParseEvents_Failure(t *testing.T) {
 
 func TestParseEvents_EmptyInput(t *testing.T) {
 	r := strings.NewReader("")
-	failed, lastMsg, _ := parseEvents(r, t.TempDir())
+	failed, _, lastMsg, _ := parseEvents(r, t.TempDir())
 
 	if failed {
 		t.Error("empty input should not be failed")
@@ -117,7 +117,7 @@ func TestParseEvents_EmptyInput(t *testing.T) {
 
 func TestParseEvents_InvalidJSON(t *testing.T) {
 	r := strings.NewReader("{invalid\n{also invalid\n")
-	failed, lastMsg, _ := parseEvents(r, t.TempDir())
+	failed, _, lastMsg, _ := parseEvents(r, t.TempDir())
 
 	if failed {
 		t.Error("invalid json should not trigger failure")
@@ -136,7 +136,7 @@ func TestParseEvents_MultipleMessages(t *testing.T) {
 	}
 
 	r := eventsToReader(t, events)
-	_, lastMsg, _ := parseEvents(r, t.TempDir())
+	_, _, lastMsg, _ := parseEvents(r, t.TempDir())
 
 	if lastMsg != "Final answer" {
 		t.Errorf("expected 'Final answer', got %q", lastMsg)

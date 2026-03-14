@@ -94,7 +94,7 @@ func (r *CodexRunner) Run(ctx context.Context, t *task.Task, repoDir, outputDir 
 	defer idleReader.Stop()
 
 	// parse JSONL events from stdout
-	failed, lastMsg, tokens := parseEvents(idleReader, outputDir)
+	failed, eventCount, lastMsg, tokens := parseEvents(idleReader, outputDir)
 
 	exitErr := cmd.Wait()
 	end := time.Now()
@@ -142,10 +142,15 @@ func (r *CodexRunner) Run(ctx context.Context, t *task.Task, repoDir, outputDir 
 		result.State = task.StateFailed
 		result.Error = "codex turn.failed event detected"
 	} else if exitErr != nil {
-		// exit code is unreliable — log but don't fail unless we also saw turn.failed
+		// exit code is unreliable — log but don't fail if events were parsed
 		slog.Warn("codex exited with error but no turn.failed detected",
-			"task", t.ID, "error", exitErr)
-		result.State = task.StateCompleted
+			"task", t.ID, "error", exitErr, "eventCount", eventCount)
+		if eventCount > 0 {
+			result.State = task.StateCompleted
+		} else {
+			result.State = task.StateFailed
+			result.Error = fmt.Sprintf("codex exit: %v", exitErr)
+		}
 	} else {
 		result.State = task.StateCompleted
 	}
@@ -154,8 +159,8 @@ func (r *CodexRunner) Run(ctx context.Context, t *task.Task, repoDir, outputDir 
 }
 
 // parseEvents reads JSONL from codex stdout and detects failures.
-// Returns (failed bool, lastMessage string, usage *task.TokenUsage).
-func parseEvents(r io.Reader, outputDir string) (bool, string, *task.TokenUsage) {
+// Returns (failed bool, eventCount int, lastMessage string, usage *task.TokenUsage).
+func parseEvents(r io.Reader, outputDir string) (bool, int, string, *task.TokenUsage) {
 	eventsFile, _ := os.Create(filepath.Join(outputDir, "events.jsonl"))
 	defer func() {
 		if eventsFile != nil {
@@ -169,6 +174,7 @@ func parseEvents(r io.Reader, outputDir string) (bool, string, *task.TokenUsage)
 	var failed bool
 	var lastMsg string
 	var usage *task.TokenUsage
+	var eventCount int
 
 	for scanner.Scan() {
 		line := scanner.Bytes()
@@ -184,6 +190,7 @@ func parseEvents(r io.Reader, outputDir string) (bool, string, *task.TokenUsage)
 			slog.Debug("unparseable jsonl line", "error", err)
 			continue
 		}
+		eventCount++
 
 		if ev.Usage != nil {
 			usage = addUsage(usage, ev.Usage.InputTokens, ev.Usage.OutputTokens, ev.Usage.TotalTokens)
@@ -202,7 +209,7 @@ func parseEvents(r io.Reader, outputDir string) (bool, string, *task.TokenUsage)
 		}
 	}
 
-	return failed, lastMsg, usage
+	return failed, eventCount, lastMsg, usage
 }
 
 // ParseEventsFromFile reads a saved events.jsonl file and extracts results.
@@ -221,7 +228,7 @@ func ParseEventsFromFile(path string) (failed bool, lastMsg string, err error) {
 	}
 	defer func() { _ = os.RemoveAll(tmpDir) }()
 
-	failed, lastMsg, _ = parseEvents(f, tmpDir)
+	failed, _, lastMsg, _ = parseEvents(f, tmpDir)
 	return failed, lastMsg, nil
 }
 
