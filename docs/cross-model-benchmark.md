@@ -324,14 +324,114 @@ Based on reported token usage (where available) and model pricing:
 - Add branch diff size to the report (lines changed per task)
 - Consider a "minimum diff" threshold — tasks that exit in <60s with 0 lines changed should auto-flag
 
+### Round 3: Isolated Repo Benchmark (2026-03-14)
+
+**Design change from Round 2:** Each runner gets its own cloned repo — no shared repos, no worktrees, no contention. A synthetic Go project ("taskman", ~440 LOC) with 10 planted bugs across 3 files. Same prompt for all runners. Pure 1:1 comparison.
+
+**Test environment:**
+- Machine: MacBook Pro M-series, macOS Darwin 25.2.0
+- Go: 1.25.7
+- tokencontrol: v0.24.7+
+- Synthetic repo: taskman (CLI task manager, 3 packages, 10 planted bugs)
+- 7 workers, 7 repos — full parallel, zero contention
+
+**Runners tested:** claude (Sonnet 4), claude-opus (Opus 4.6), gemini (2.5 Pro), deepseek (V3), deepseek-r1 (R1), zai (GLM-4.7), kilocode (Kilo Gateway)
+
+**Task:** Fix all 10 bugs + write tests for each fix. Bugs span validation, filtering, sorting, nil safety, error handling, state management, and CLI flag parsing.
+
+#### Execution Results
+
+| Rank | Runner | Model | Time | Compiles | Tests Pass | Bugs Fixed | Lines +/- | Tokens |
+|:----:|--------|-------|:----:|:--------:|:----------:|:----------:|:---------:|:------:|
+| 1 | **claude** | Sonnet 4 | 2m35s | yes | yes | 10/10 | +628/-54 | 10.7K |
+| 2 | **kilocode** | Kilo Gateway | 2m39s | yes | yes | 10/10 | +495/-52 | — |
+| 3 | **claude-opus** | Opus 4.6 | 2m25s | yes | yes | 10/10 | +544/-53 | 10.1K |
+| 4 | **deepseek** | DeepSeek V3 | 27m31s | yes | yes | 10/10 | +942/-20 | — |
+| 5 | **deepseek-r1** | DeepSeek R1 | 22m53s | yes | yes | 10/10 | +630/-27 | — |
+| 6 | **zai** | GLM-4.7 | 9m02s | yes | yes | 10/10 | +713/-49 | — |
+| 7 | **gemini** | Gemini 2.5 Pro | 6m16s | yes | **no** | 10/10 | +495/-36 | — |
+
+All 7 runners fixed all 10 bugs in the source code. Differentiation comes from test quality, design choices, and execution correctness.
+
+#### Bug-by-Bug Fix Matrix
+
+| Bug | claude | opus | gemini | deepseek | ds-r1 | zai | kilo |
+|-----|:------:|:----:|:------:|:--------:|:-----:|:---:|:----:|
+| 1. Validate() empty/whitespace title | A | A | B | B | B | B | A |
+| 2. MatchesFilter() full filter support | A | A | C | A | A | A | A |
+| 3. SortByPriority() integer comparison | A | A | A | A | A | A | A |
+| 4. FormatTask() nil DueDate | A | A | A | A | A | A | A |
+| 5. ParsePriority() error on unknown | A | A | A | A | A | A | A |
+| 6. Load() update nextID | A | A | A | A | A | A | A |
+| 7. List() apply filter | A | A | A | A | A | A | A |
+| 8. Complete() return error | A | A | C | A | A | A | A |
+| 9. Stats() fix swapped counts | A | A | A | A | A | A | A |
+| 10. CLI flag bounds check | A | A | A | A | A | A | A |
+
+#### Key Differentiators
+
+**Whitespace handling (Bug 1):** claude, claude-opus, kilocode used `strings.TrimSpace()` — catches `"   "` as empty. deepseek, deepseek-r1, zai used `t.Title == ""` — misses whitespace-only titles.
+
+**Filter zero-value ambiguity (Bug 2):** Three approaches emerged:
+- **Pointer nil sentinel** (`*int`): deepseek, zai — cleanest design, distinguishes "not set" from "set to 0"
+- **Explicit bool flags** (`MinPrioritySet bool`): deepseek-r1 — correct but verbose
+- **Zero guard** (`MaxPriority > 0`): claude, claude-opus, kilocode — works for 0-2 range but semantically brittle
+- **No guard**: gemini — `MaxPriority=0` silently excludes medium/high tasks (latent bug)
+
+**Call site consistency (Bug 8):** gemini changed `Complete()` to return `error` but forgot to check the return value in `cli.go` — the error is silently discarded. All other runners updated both the function and its call sites.
+
+**Test compilation (gemini):** Two test files fail to compile — `task_test.go` references a nonexistent struct field `task`, `store_test.go` imports unused `"os"`. The CLI tests compile and pass. The source fixes are all correct — the agent just didn't verify its test code compiled.
+
+**Missing test layer (zai):** No `cli_test.go` at all. Store and task tests are comprehensive, but the entire CLI layer is untested.
+
+#### Quality Grades
+
+| Runner | Code Quality | Test Quality | Design | Overall |
+|--------|:-----------:|:------------:|:------:|:-------:|
+| claude | A | A | A- | **A** |
+| kilocode | A | A- | A- | **A-** |
+| claude-opus | A | A- | A- | **A-** |
+| deepseek | A- | B+ | A | **B+** |
+| deepseek-r1 | A- | A- | B+ | **B+** |
+| zai | B+ | B | A | **B** |
+| gemini | A- | F | B | **C+** |
+
+#### Cost Comparison
+
+| Runner | Model | Time | Tokens | Est. Cost |
+|--------|-------|:----:|:------:|:---------:|
+| claude | Sonnet 4 | 2m35s | 10.7K | ~$0.05 |
+| claude-opus | Opus 4.6 | 2m25s | 10.1K | ~$0.76 |
+| kilocode | Kilo Gateway | 2m39s | — | subscription |
+| gemini | Gemini 2.5 Pro | 6m16s | — | ~$0.02 |
+| zai | GLM-4.7 | 9m02s | — | ~$0.03 |
+| deepseek | DeepSeek V3 | 27m31s | — | ~$0.01 |
+| deepseek-r1 | DeepSeek R1 | 22m53s | — | ~$0.03 |
+
+#### Round 3 Conclusion
+
+**Winner by quality: Claude Sonnet 4** — 10/10 bugs fixed, best tests, whitespace handling, no regressions. 2.5 minutes, ~$0.05. Best overall value.
+
+**Surprise performer: Kilocode** — matched Claude on quality at identical speed. Subscription model makes per-task cost opaque but execution is fast and clean.
+
+**Fastest: Claude Opus** (2m25s) but at 15x the cost of Sonnet for marginally different output.
+
+**Cheapest: DeepSeek V3** (~$0.01) but 10x slower than Claude. Good for batch processing where latency doesn't matter.
+
+**Biggest disappointment: Gemini 2.5 Pro** — fixed all bugs in source but shipped broken tests. In a real CI pipeline, this would be a failed PR.
+
+**DeepSeek R1 observation:** The reasoning model was slower than V3 on a straightforward bug-fix task. Reasoning overhead doesn't pay off when the task is mechanical.
+
+**ZAI (GLM-4.7):** Solid source fixes but missing an entire test layer. Consistent with Round 2 — delivers code but skips verification.
+
 ## Interpreting Results
 
 The best model depends on your priorities:
 
-- **Reliability-first**: DeepSeek R1 — slow but attempts every task
-- **Quality-first**: Claude Opus — best code when it delivers, but unreliable delivery rate
-- **Cost-optimized**: DeepSeek V3 — cheapest per real deliverable
-- **Speed-first**: Not meaningful until false positive detection improves — fast completion without code is worthless
-- **Task-specific**: Some models excel at refactoring but struggle with new features — use the per-category grades to assign the right model to the right task type
+- **Quality-first**: Claude Sonnet 4 — best overall grade, fast, reasonable cost
+- **Budget-first**: DeepSeek V3 — $0.01 per task, correct code, slower
+- **Speed-first**: Claude Sonnet or Kilocode — both under 3 minutes with clean output
+- **Reliability-first**: Claude Sonnet, Kilocode, DeepSeek V3 — all compiled and passed tests
+- **Avoid for CI**: Gemini — broken tests would block the pipeline
 
 Tokencontrol supports per-task runner assignment, so you can use different models for different task types in the same run.
