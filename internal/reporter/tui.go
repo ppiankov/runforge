@@ -93,13 +93,16 @@ var (
 	helpStyle   = lipgloss.NewStyle().Foreground(lipgloss.Color("8"))
 	pauseStyle  = lipgloss.NewStyle().Foreground(lipgloss.Color("11")).Bold(true)
 
-	// Panel border styles
+	// Panel border styles — opaque background prevents transparent terminal bleed-through
+	panelBG            = lipgloss.Color("235") // dark gray, near-black
 	focusedBorderStyle = lipgloss.NewStyle().
 				Border(lipgloss.RoundedBorder()).
-				BorderForeground(lipgloss.Color("14")) // cyan
+				BorderForeground(lipgloss.Color("14")). // cyan
+				Background(panelBG)
 	dimBorderStyle = lipgloss.NewStyle().
 			Border(lipgloss.RoundedBorder()).
-			BorderForeground(lipgloss.Color("8")) // gray
+			BorderForeground(lipgloss.Color("8")). // gray
+			Background(panelBG)
 
 	logErrorStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("9")) // red for secret/error lines
 	cursorStyle   = lipgloss.NewStyle().Foreground(lipgloss.Color("14")).Bold(true)
