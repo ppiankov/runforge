@@ -125,7 +125,7 @@ func newRunCmd() *cobra.Command {
 	}
 
 	cmd.Flags().StringVar(&tasksFile, "tasks", "tokencontrol.json", "task files: path, glob, or comma-separated (e.g. '/tmp/pack*.json' or 'a.json,b.json')")
-	cmd.Flags().IntVar(&workers, "workers", 4, "max parallel runner processes")
+	cmd.Flags().IntVar(&workers, "workers", 0, "max parallel runner processes (0 = auto-scale to task count)")
 	cmd.Flags().BoolVar(&verify, "verify", true, "run make test && make lint per repo after completion")
 	cmd.Flags().BoolVar(&noVerify, "no-verify", false, "disable post-run verification")
 	cmd.Flags().StringVar(&reposDir, "repos-dir", ".", "base directory containing repos")
@@ -203,6 +203,18 @@ func runTasks(tasksFile string, workers int, verify bool, reposDir, filter strin
 	if len(tasks) == 0 {
 		fmt.Println("All tasks already completed (use --retry to re-execute failed tasks, or 'tokencontrol state clear' to reset)")
 		return nil
+	}
+
+	// auto-scale workers to task count when not explicitly set
+	if workers <= 0 {
+		workers = len(tasks)
+		if workers > 20 {
+			workers = 20 // sane upper bound
+		}
+		if workers < 1 {
+			workers = 1
+		}
+		slog.Info("auto-scaled workers to task count", "workers", workers, "tasks", len(tasks))
 	}
 
 	// warn if no cascade configured — single-runner dispatch wastes fallback potential
