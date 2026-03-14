@@ -148,19 +148,8 @@ func RunWithCascade(
 				ConnectivityError: result.ConnectivityError,
 			})
 
-			// on success, verify build then check for false positive
+			// on success, check for false positive and return
 			if result.State == task.StateCompleted {
-				// post-task build gate: catch broken code before accepting
-				if buildErr := runner.QuickVerify(ctx, repoDir); buildErr != nil {
-					slog.Warn("post-task build verification failed",
-						"task", t.ID, "runner", name, "error", buildErr)
-					result.State = task.StateFailed
-					result.Error = fmt.Sprintf("build verification failed: %v", buildErr)
-					attempts[len(attempts)-1].State = task.StateFailed
-					attempts[len(attempts)-1].Error = result.Error
-					break // non-transient failure, try next runner
-				}
-
 				result.RunnerUsed = name
 				result.Attempts = attempts
 				if isFalsePositive(attemptDir, repoDir, headBefore) {

@@ -169,6 +169,9 @@ func (r *TextReporter) PrintSummary(report *task.RunReport) {
 	if report.MergeConflicts > 0 {
 		fmt.Fprintf(r.w, "%sMerge conflicts: %d%s  ", r.c(colorRed), report.MergeConflicts, r.c(colorReset))
 	}
+	if report.Remediations > 0 {
+		fmt.Fprintf(r.w, "%sRemediated: %d%s  ", r.c(colorYellow), report.Remediations, r.c(colorReset))
+	}
 	if report.Retries > 0 {
 		fmt.Fprintf(r.w, "%sRetries: %d%s  ", r.c(colorYellow), report.Retries, r.c(colorReset))
 	}
@@ -318,6 +321,9 @@ func runnerSuffix(res *task.TaskResult) string {
 	}
 	if res.AutoCommitted {
 		parts = append(parts, "auto-committed")
+	}
+	if res.Remediated {
+		parts = append(parts, fmt.Sprintf("remediated by %s", res.RemediatedBy))
 	}
 	if res.MergeConflict {
 		parts = append(parts, "merge conflict: "+res.WorktreeBranch)

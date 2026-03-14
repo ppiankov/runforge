@@ -636,6 +636,36 @@ func executeRun(cfg execRunConfig) (*execRunResult, error) {
 			}
 		}
 
+		// post-task build verification — catch broken code, dispatch remediation
+		if result.State == task.StateCompleted {
+			if buildErr := runner.QuickVerify(ctx, execDir); buildErr != nil {
+				result.BuildError = buildErr.Error()
+				slog.Warn("build broken after task completion",
+					"task", t.ID, "runner", result.RunnerUsed, "error", buildErr)
+
+				// dispatch remediation to strong runners (tier 1)
+				remResult := runRemediation(ctx, t, execDir, outputDir, buildErr,
+					runners, tf, blacklist, graylist, limiter, cfg.maxRuntime, cfg.maxRetries)
+				if remResult != nil && remResult.State == task.StateCompleted {
+					result.Remediated = true
+					result.RemediatedBy = remResult.RunnerUsed
+					runner.SanitizeHeadCommit(ctx, execDir)
+					slog.Info("remediation succeeded",
+						"task", t.ID, "original_runner", result.RunnerUsed,
+						"remediated_by", remResult.RunnerUsed)
+				} else {
+					result.State = task.StateFailed
+					errMsg := "build broken, remediation failed"
+					if remResult != nil && remResult.Error != "" {
+						errMsg += ": " + remResult.Error
+					}
+					result.Error = errMsg
+					slog.Error("remediation failed",
+						"task", t.ID, "runner", result.RunnerUsed, "build_error", buildErr)
+				}
+			}
+		}
+
 		// merge worktree branch back to main repo
 		if wtBranch != "" && result.State == task.StateCompleted && cfg.mergeBack {
 			if err := runner.WaitAndAcquire(ctx, repoDir, t.ID+"-merge"); err == nil {
@@ -916,6 +946,9 @@ func buildReport(tasksFiles []string, workers int, filter, reposDir string, resu
 			if r.MergeConflict {
 				report.MergeConflicts++
 			}
+			if r.Remediated {
+				report.Remediations++
+			}
 		case task.StateFailed:
 			report.Failed++
 		case task.StateSkipped:
@@ -1101,6 +1134,89 @@ func collectConflicts(results map[string]*task.TaskResult, tasks []task.Task) []
 		conflicts = append(conflicts, ci)
 	}
 	return conflicts
+}
+
+// runRemediation dispatches a build-fix task to strong runners (tier 1) when a
+// weaker runner produces code that doesn't compile. The strong runner sees the
+// repo in its current state (with the weak runner's commits) and gets a focused
+// prompt to fix the build errors.
+func runRemediation(
+	ctx context.Context,
+	original *task.Task,
+	repoDir, outputDir string,
+	buildErr error,
+	runners map[string]runner.Runner,
+	tf *task.TaskFile,
+	blacklist *runner.RunnerBlacklist,
+	graylist *runner.RunnerGraylist,
+	limiter *runner.ProviderLimiter,
+	maxRuntime time.Duration,
+	maxRetries int,
+) *task.TaskResult {
+	prompt := fmt.Sprintf(`The previous agent completed task "%s" but the build is broken.
+
+Fix the build errors below. Do NOT re-implement the task — the work is already done and committed.
+Only fix what is needed to make the build pass.
+
+Build errors:
+%s
+
+After fixing, run: go build ./...
+If tests exist, also run: go test ./...
+
+Commit your fix with: git add <files> && git commit -m "fix: resolve build errors from %s"
+`, original.Title, buildErr.Error(), original.ID)
+
+	remTask := &task.Task{
+		ID:         original.ID + "-remediate",
+		Title:      fmt.Sprintf("Build fix: %s", original.ID),
+		Prompt:     prompt,
+		Repo:       original.Repo,
+		Difficulty: task.DifficultySimple, // build fixes are straightforward
+	}
+
+	// only use tier 1 runners for remediation
+	var strongRunners []string
+	for _, name := range tf.DefaultFallbacks {
+		if task.DefaultTier(name) <= 1 {
+			if _, ok := runners[name]; ok {
+				strongRunners = append(strongRunners, name)
+			}
+		}
+	}
+	// also check default runner
+	if task.DefaultTier(tf.DefaultRunner) <= 1 {
+		if _, ok := runners[tf.DefaultRunner]; ok {
+			// prepend if not already in list
+			found := false
+			for _, n := range strongRunners {
+				if n == tf.DefaultRunner {
+					found = true
+					break
+				}
+			}
+			if !found {
+				strongRunners = append([]string{tf.DefaultRunner}, strongRunners...)
+			}
+		}
+	}
+	if len(strongRunners) == 0 {
+		slog.Warn("no tier-1 runners available for remediation", "task", original.ID)
+		return nil
+	}
+
+	remOutputDir := filepath.Join(outputDir, "remediate")
+	if err := os.MkdirAll(remOutputDir, 0o755); err != nil {
+		slog.Warn("cannot create remediation output dir", "error", err)
+		return nil
+	}
+
+	slog.Info("dispatching build remediation",
+		"task", original.ID, "runners", strongRunners)
+	fmt.Fprintf(os.Stderr, "  → build broken, dispatching remediation to %v\n", strongRunners)
+
+	return RunWithCascade(ctx, remTask, repoDir, remOutputDir, runners, strongRunners,
+		maxRuntime, maxRetries, blacklist, graylist, limiter, nil)
 }
 
 // runMergeResolve dispatches a synthetic merge resolution task for conflicted branches.
@@ -1463,15 +1579,21 @@ func autoGraylistRunners(results map[string]*task.TaskResult, graylist *runner.R
 			fpCounts[key{res.RunnerUsed, model}]++
 		}
 
-		// build failures from cascade attempts (runner produced code that doesn't compile)
-		for _, a := range res.Attempts {
-			if a.State == task.StateFailed && strings.Contains(a.Error, "build verification failed") {
-				model := ""
-				if p, ok := profiles[a.Runner]; ok {
-					model = p.Model
-				}
-				buildFails[key{a.Runner, model}]++
+		// build failures: runner produced code that needed remediation
+		if res.Remediated && res.RunnerUsed != "" {
+			model := ""
+			if p, ok := profiles[res.RunnerUsed]; ok {
+				model = p.Model
 			}
+			buildFails[key{res.RunnerUsed, model}]++
+		}
+		// also check failed tasks with build errors
+		if res.BuildError != "" && res.State == task.StateFailed && res.RunnerUsed != "" {
+			model := ""
+			if p, ok := profiles[res.RunnerUsed]; ok {
+				model = p.Model
+			}
+			buildFails[key{res.RunnerUsed, model}]++
 		}
 	}
 

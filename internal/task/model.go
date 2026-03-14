@@ -168,6 +168,10 @@ type TaskResult struct {
 	WorktreeBranch string `json:"worktree_branch,omitempty"` // branch name when worktree isolation used
 	MergeConflict  bool   `json:"merge_conflict,omitempty"`  // FF merge back to main failed
 
+	Remediated   bool   `json:"remediated,omitempty"`    // strong runner fixed quality issues after completion
+	RemediatedBy string `json:"remediated_by,omitempty"` // runner that performed the remediation
+	BuildError   string `json:"build_error,omitempty"`   // build verification failure message
+
 	RunnerUsed string        `json:"runner_used,omitempty"` // profile that produced the final result
 	Attempts   []AttemptInfo `json:"attempts,omitempty"`    // all cascade attempts
 	Review     *ReviewResult `json:"review,omitempty"`      // auto-review result
@@ -201,6 +205,7 @@ type RunReport struct {
 	FalsePositives int                    `json:"false_positives,omitempty"`
 	AutoCommits    int                    `json:"auto_commits,omitempty"`
 	MergeConflicts int                    `json:"merge_conflicts,omitempty"`
+	Remediations   int                    `json:"remediations,omitempty"`
 	Retries        int                    `json:"retries,omitempty"`
 	TotalDuration  time.Duration          `json:"total_duration"`
 	ResetsAt       time.Time              `json:"resets_at,omitempty"`
