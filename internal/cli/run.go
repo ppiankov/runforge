@@ -366,7 +366,7 @@ func runTasks(tasksFile string, workers int, verify bool, reposDir, filter strin
 		secretRepos:    secretRepos,
 		stateTracker:   stateTracker,
 		noAutoCommit:   noAutoCommit,
-		parallelRepo:   parallelRepo || (cfg != nil && cfg.ParallelRepo) || tf.ParallelRepo,
+		parallelRepo:   resolveParallelRepo(parallelRepo, cfg, tf, tasks),
 		mergeBack:      resolveMergeBack(tf, cfg),
 		noMergeResolve: noMergeResolve,
 		initialQuotas:  initialQuotas,
@@ -1482,6 +1482,34 @@ func collectRepos(tasks []task.Task) []string {
 		repos = append(repos, t.Repo)
 	}
 	return repos
+}
+
+// resolveParallelRepo determines whether to use worktree isolation.
+// Auto-enables when multiple tasks target the same repo.
+func resolveParallelRepo(flag bool, cfg *config.Settings, tf *task.TaskFile, tasks []task.Task) bool {
+	if flag || (cfg != nil && cfg.ParallelRepo) || tf.ParallelRepo {
+		return true
+	}
+	if hasRepoDuplicates(tasks) {
+		slog.Info("auto-enabling parallel_repo: multiple tasks target the same repo")
+		return true
+	}
+	return false
+}
+
+// hasRepoDuplicates returns true if multiple tasks target the same repo.
+func hasRepoDuplicates(tasks []task.Task) bool {
+	seen := make(map[string]struct{})
+	for _, t := range tasks {
+		if t.Repo == "" {
+			continue
+		}
+		if _, ok := seen[t.Repo]; ok {
+			return true
+		}
+		seen[t.Repo] = struct{}{}
+	}
+	return false
 }
 
 // isTerminal checks if stdout is a terminal.

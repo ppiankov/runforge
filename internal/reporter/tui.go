@@ -1651,7 +1651,7 @@ func (m TUIModel) fmtRunning(res *task.TaskResult, t *task.Task, spinner string,
 		action = dimStyle.Render(action)
 	}
 
-	f := fmt.Sprintf("  %%s %%-10s %%-%ds %%-%ds %%-%ds %%-8s %%s", w.id, w.runner, w.repo)
+	f := fmt.Sprintf("  %%s %%-10s %%-%ds %%-%ds %%-%ds %%-8s", w.id, w.runner, w.repo)
 	base := fmt.Sprintf(f, " ", "running", res.TaskID, rn, repo, elapsed)
 	// replace leading space with colored spinner (raw string to avoid double-style)
 	return coloredSpinner + runStyle.Render(base[1:]) + " " + action
