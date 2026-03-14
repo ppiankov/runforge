@@ -198,18 +198,31 @@ Both implemented all checks. Plus had better architecture; Coder had more robust
 
 Qwen3.5-Plus wins on quality, completeness, and cost. Comparable speed. Recommended as default qwen runner.
 
-### Round 2: Full Cross-Model (2026-03-14)
+### Round 2: Cross-Model Benchmark (2026-03-14)
 
-12 runners × 3 task types = 36 tasks. Task file: `/tmp/bench-cross-model.json`
+7 runners × 3 task types = 21 tasks. All runners execute the same prompts in parallel, each in an isolated git worktree.
 
 **Test environment:**
 - Machine: MacBook Pro M-series, macOS Darwin 25.2.0
-- Go: 1.25.7 (target repo), 1.26.0 (tokencontrol)
-- tokencontrol: v0.24.6+ (post-kilocode commit)
+- Go: 1.25.7 (target repo)
+- tokencontrol: v0.24.7
 - Target repo: [ancc](https://github.com/ppiankov/ancc) (Go CLI, ~5K LOC)
-- Workers: 20 (from `.tokencontrol.yml`)
+- Workers: 20, parallel_repo: true (one worktree per task)
 - Idle timeout: 5 minutes per task
-- Max runtime: 30 minutes total
+
+**Runners tested:**
+
+| Runner | CLI | Model | Auth |
+|--------|-----|-------|------|
+| claude | `claude` | Claude Sonnet 4 | Pro subscription |
+| claude-opus | `claude` | Claude Opus 4.6 | Pro subscription |
+| gemini | `gemini` | Gemini 2.5 Pro | API key (Vertex) |
+| deepseek | `opencode` | DeepSeek V3 | API key ($50 balance) |
+| deepseek-r1 | `opencode` | DeepSeek R1 | API key ($50 balance) |
+| zai | `opencode` | GLM-4.7 | Pro subscription |
+| kilocode | `kilo run` | Kilo Gateway | Subscription |
+
+**Excluded from this round:** codex (no API key), codex-o3 (no API key), qwen (auth failure), qwen-coder (auth failure), cline (gRPC not configured).
 
 **Task prompts (identical across all runners):**
 
@@ -219,30 +232,106 @@ Qwen3.5-Plus wins on quality, completeness, and cost. Comparable speed. Recommen
 
 3. **Refactoring** (medium): Extract `scanAgentPaths` helper from 11 duplicated scan functions in `agents.go`. Reduce code by 30%+ while preserving behavior. Tests.
 
-Results will populate this matrix after the run completes:
+#### Execution Results
 
-| Runner | Model | Bug Fix | Feature | Refactor | Avg Grade | Time | Tokens | Est. Cost |
-|--------|-------|:-------:|:-------:|:--------:|:---------:|:----:|:------:|:---------:|
-| codex | GPT-5.4 | | | | | | | |
-| codex-o3 | o3 | | | | | | | |
-| claude | Sonnet 4 | | | | | | | |
-| claude-opus | Opus 4.6 | | | | | | | |
-| gemini | Gemini 2.5 Pro | | | | | | | |
-| qwen | Qwen3.5-Plus | | | | | | | |
-| qwen-coder | Qwen3-Coder | | | | | | | |
-| deepseek | DeepSeek V3 | | | | | | | |
-| deepseek-r1 | DeepSeek R1 | | | | | | | |
-| zai | GLM-4.7 | | | | | | | |
-| kilocode | Kilo Gateway | | | | | | | |
-| cline | Cline (DS) | | | | | | | |
+Total wall time: 19m 19s (all 21 tasks ran in parallel via worktrees).
+
+| Runner | Model | Bug Fix | Feature | Refactor | Time (total) |
+|--------|-------|:-------:|:-------:|:--------:|:------------:|
+| claude | Sonnet 4 | 1m06s ✓ | 1m18s ✓ | 54s ✓ | 3m18s |
+| claude-opus | Opus 4.6 | 59s ✓ | 1m16s ✓ | 9m27s ✓ | 11m42s |
+| gemini | Gemini 2.5 Pro | 2m46s ✓ | 1m03s ✗ | 32s ✓ | 4m21s |
+| kilocode | Kilo Gateway | 43s ✓ | 2m02s ✓ | 37s ✓ | 3m22s |
+| zai | GLM-4.7 | 1m36s ✓ | 32s ✓ | 2m56s ✓ | 5m04s |
+| deepseek | DeepSeek V3 | 11m28s ✓ | 3m10s ✓ | 9m08s ✓ | 23m46s |
+| deepseek-r1 | DeepSeek R1 | 12m09s ✓ | 10m54s ✓ | 19m17s ✓ | 42m20s |
+
+#### Code Quality Analysis
+
+**Critical finding: 15 of 21 branches contained zero agent-generated commits.** The runner reported "completed" but produced no code changes — classic false positive. Only 6 branches had real work. Fast completion times (30-60s) without code changes are a strong false positive signal.
+
+Branch-by-branch verification (checked out each branch, ran `go build ./...` and `go test ./... -race`):
+
+| Branch | Runner | Task | Compiles | Tests | Lines +/- | Assessment |
+|--------|--------|------|:--------:|:-----:|:---------:|------------|
+| bench-bugfix-deepseek | deepseek | bugfix | yes | PASS | +40/-6 | Correct: added 30s HTTP timeout, new test file |
+| bench-bugfix-deepseek-r1 | deepseek-r1 | bugfix | yes | PASS | +14/-8 | Correct: HTTP timeout + version parser tolerates short versions |
+| bench-bugfix-gemini | gemini | bugfix | yes | FAIL | +88/-22 | Over-engineered: rewrote version check to hit GitHub API, wrong endpoint, test regression |
+| bench-feature-deepseek-r1 | deepseek-r1 | feature | yes | PASS | +12/-18 | Partial: added path validation guard, not the full export command |
+| bench-refactor-claude-opus | claude-opus | refactor | yes | PASS | +205/-439 | Excellent: eliminated pathType enum, 31% code reduction, all tests pass |
+| bench-refactor-deepseek-r1 | deepseek-r1 | refactor | yes | FAIL | +65/-34 | Correct intent but broken: extracted helpers, redeclaration collision in tests |
+
+**Branches with no agent commits (false positives):**
+
+claude (3/3), claude-opus bugfix+feature (2/3), gemini feature+refactor (2/3), kilocode (3/3), zai (3/3), deepseek feature+refactor (2/3), deepseek-r1 none extra.
+
+#### Quality Grades
+
+Graded only on branches that produced real work:
+
+| Runner | Model | Bug Fix | Feature | Refactor | Avg |
+|--------|-------|:-------:|:-------:|:--------:|:---:|
+| claude | Sonnet 4 | FP | FP | FP | N/A |
+| claude-opus | Opus 4.6 | FP | FP | **A** | A (1/3) |
+| gemini | Gemini 2.5 Pro | C | fail | FP | C (1/3) |
+| kilocode | Kilo Gateway | FP | FP | FP | N/A |
+| zai | GLM-4.7 | FP | FP | FP | N/A |
+| deepseek | DeepSeek V3 | **B+** | FP | FP | B+ (1/3) |
+| deepseek-r1 | DeepSeek R1 | **A-** | B | C+ | **B** (3/3) |
+
+FP = false positive (reported success, no code produced)
+
+#### Key Observations
+
+1. **DeepSeek R1 was the only runner that produced work on all three tasks.** Slow (42 minutes total) but the most reliable. The bugfix was correct, the feature was partial, the refactor had a test collision.
+
+2. **Claude Opus produced the highest-quality single deliverable** — the refactor was a clean 31% reduction with passing tests. But it only delivered 1 of 3 tasks.
+
+3. **DeepSeek V3 delivered a solid bugfix** with proper tests, but produced nothing on the other two tasks.
+
+4. **Gemini's bugfix compiled but failed tests** — it over-engineered the version check by hitting the GitHub API instead of doing local comparison. The feature task failed outright.
+
+5. **Claude Sonnet, Kilocode, and ZAI produced zero code across all tasks.** They exited "successfully" without making changes. This is a tokencontrol detection problem — these should be flagged as false positives, not completions.
+
+6. **False positive detection is the #1 reliability gap.** 15/21 tasks (71%) were false positives that tokencontrol marked as completed. The existing `isFalsePositive` check uses git HEAD movement as the primary signal, but runners that exit cleanly without committing bypass it.
+
+#### Cost Comparison
+
+Based on reported token usage (where available) and model pricing:
+
+| Runner | Model | Tokens (total) | Est. Cost | Cost per real deliverable |
+|--------|-------|:--------------:|:---------:|:-------------------------:|
+| claude | Sonnet 4 | 2.1K | ~$0.03 | N/A (no deliverables) |
+| claude-opus | Opus 4.6 | 25.6K | ~$1.92 | $1.92 (1 deliverable) |
+| deepseek-r1 | DeepSeek R1 | N/A | ~$0.10* | ~$0.03 (3 deliverables) |
+| deepseek | DeepSeek V3 | N/A | ~$0.03* | ~$0.03 (1 deliverable) |
+| gemini | Gemini 2.5 Pro | N/A | ~$0.05* | ~$0.05 (1 partial) |
+
+*Estimated from typical token usage for task duration. OpenCode runners don't report tokens in events.
+
+#### Round 2 Conclusion
+
+**Winner by reliability: DeepSeek R1** — only runner to attempt all three tasks. Slow but produced real code on every task.
+
+**Winner by quality: Claude Opus** — when it works, it produces the best code. But 1/3 delivery rate is a problem.
+
+**Winner by value: DeepSeek V3** — cheapest per deliverable with good code quality. Needs more tasks to confirm reliability.
+
+**Biggest surprise: Claude Sonnet, Kilocode, ZAI all failed silently.** They consumed time and quota but produced nothing. This points to a prompt interpretation gap — these runners may need different prompt styles or more explicit instructions.
+
+**Action items for tokencontrol:**
+- Improve false positive detection: flag "completed" tasks with zero git diff as suspected false positives
+- Add branch diff size to the report (lines changed per task)
+- Consider a "minimum diff" threshold — tasks that exit in <60s with 0 lines changed should auto-flag
 
 ## Interpreting Results
 
 The best model depends on your priorities:
 
-- **Quality-first**: Pick the highest average grade regardless of cost
-- **Cost-optimized**: Pick the cheapest model that still achieves B+ or better
-- **Speed-first**: Pick the fastest model that achieves B or better
+- **Reliability-first**: DeepSeek R1 — slow but attempts every task
+- **Quality-first**: Claude Opus — best code when it delivers, but unreliable delivery rate
+- **Cost-optimized**: DeepSeek V3 — cheapest per real deliverable
+- **Speed-first**: Not meaningful until false positive detection improves — fast completion without code is worthless
 - **Task-specific**: Some models excel at refactoring but struggle with new features — use the per-category grades to assign the right model to the right task type
 
 Tokencontrol supports per-task runner assignment, so you can use different models for different task types in the same run.
