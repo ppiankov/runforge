@@ -1603,8 +1603,11 @@ func (m TUIModel) fmtFailed(res *task.TaskResult, t *task.Task, w colWidths) str
 	trail := cascadeTrail(res)
 	repo := repoShort(t)
 	errMsg := res.Error
-	if len(errMsg) > 30 {
-		errMsg = errMsg[:30] + "..."
+	if res.BuildError != "" {
+		errMsg = "build: " + res.BuildError
+	}
+	if len(errMsg) > 40 {
+		errMsg = errMsg[:40] + "..."
 	}
 	f := fmt.Sprintf("  %%s %%-10s %%-%ds %%-%ds %%-%ds %%s", w.id, w.runner, w.repo)
 	return failedStyle.Render(fmt.Sprintf(f, icon, label, res.TaskID, trail, repo, errMsg))
@@ -1662,8 +1665,12 @@ func (m TUIModel) fmtDone(res *task.TaskResult, t *task.Task, w colWidths) strin
 	if res.TokensUsed != nil && res.TokensUsed.TotalTokens > 0 {
 		tokens = formatCompactTokens(res.TokensUsed.TotalTokens)
 	}
+	suffix := tokens
+	if res.Remediated {
+		suffix = rlStyle.Render("fixed:"+res.RemediatedBy) + " " + tokens
+	}
 	f := fmt.Sprintf("  ✓ %%-10s %%-%ds %%-%ds %%-%ds %%-8s %%s", w.id, w.runner, w.repo)
-	return doneStyle.Render(fmt.Sprintf(f, "done", res.TaskID, rn, repo, dur, tokens))
+	return doneStyle.Render(fmt.Sprintf(f, "done", res.TaskID, rn, repo, dur, suffix))
 }
 
 func (m TUIModel) fmtRateLimited(res *task.TaskResult, t *task.Task, w colWidths) string {

@@ -295,6 +295,12 @@ func (m MissionControlModel) renderCurrentRun() string {
 		if r.RunnerUsed != "" {
 			info += " " + dimStyle.Render(r.RunnerUsed)
 		}
+		if r.Remediated {
+			info += " " + warnStyle.Render("fixed:"+r.RemediatedBy)
+		}
+		if r.BuildError != "" && r.State == task.StateFailed {
+			info += " " + failedStyle.Render("build broken")
+		}
 
 		b.WriteString(fmt.Sprintf("  %s %s %-30s %s\n", icon, style, id, info))
 	}

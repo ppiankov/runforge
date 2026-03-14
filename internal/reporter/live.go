@@ -225,11 +225,13 @@ func (lr *LiveReporter) formatFailed(res *task.TaskResult) string {
 		label = "skipped"
 	}
 	errMsg := res.Error
-	if res.ConnectivityError != "" {
+	if res.BuildError != "" {
+		errMsg = "build: " + res.BuildError
+	} else if res.ConnectivityError != "" {
 		errMsg = res.ConnectivityError
 	}
-	if len(errMsg) > 30 {
-		errMsg = errMsg[:30] + "..."
+	if len(errMsg) > 40 {
+		errMsg = errMsg[:40] + "..."
 	}
 	return fmt.Sprintf("  %s%s %-10s %-20s %-12s %-12s %s%s",
 		lr.c(colorRed), icon, label, res.TaskID, trail, repo, errMsg, lr.c(colorReset))
@@ -259,8 +261,12 @@ func (lr *LiveReporter) formatCompleted(res *task.TaskResult) string {
 	if res.TokensUsed != nil && res.TokensUsed.TotalTokens > 0 {
 		tokens = formatCompactTokens(res.TokensUsed.TotalTokens)
 	}
+	suffix := tokens
+	if res.Remediated {
+		suffix = fmt.Sprintf("%sfixed:%s%s %s", lr.c(colorYellow), res.RemediatedBy, lr.c(colorGreen), tokens)
+	}
 	return fmt.Sprintf("  %s✓ %-10s %-20s %-12s %-12s %-8s %s%s",
-		lr.c(colorGreen), "done", res.TaskID, rn, repo, dur, tokens, lr.c(colorReset))
+		lr.c(colorGreen), "done", res.TaskID, rn, repo, dur, suffix, lr.c(colorReset))
 }
 
 func (lr *LiveReporter) formatRateLimited(res *task.TaskResult) string {
