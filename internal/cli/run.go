@@ -13,6 +13,7 @@ import (
 	"os/signal"
 	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -529,6 +530,29 @@ func executeRun(cfg execRunConfig) (*execRunResult, error) {
 	}
 	blacklist := runner.LoadBlacklist(runner.DefaultBlacklistPath())
 	graylist := runner.LoadGraylist(runner.DefaultGraylistPath())
+
+	// auto-graylist runners whose provider has zero balance
+	if len(cfg.initialQuotas) > 0 && tf.Runners != nil {
+		zeroProviders := make(map[string]bool)
+		for _, qi := range cfg.initialQuotas {
+			if qi.Balance != "" && !isPositiveBalance(qi.Balance) && qi.Provider != "" {
+				zeroProviders[qi.Provider] = true
+				slog.Warn("provider has zero balance — graylisting runners",
+					"provider", qi.Provider, "balance", qi.Balance)
+			}
+		}
+		if len(zeroProviders) > 0 {
+			for name, profile := range tf.Runners {
+				prov := runner.RunnerToProvider(profile.Type)
+				if prov == "" {
+					prov = providerFromModel(profile.Model)
+				}
+				if zeroProviders[prov] {
+					graylist.Add(name, profile.Model, "zero balance on "+prov)
+				}
+			}
+		}
+	}
 
 	// build per-provider concurrency limiter from settings
 	var concurrencyLimits map[string]int
@@ -1849,6 +1873,34 @@ func checkConnectivity() error {
 }
 
 // allScriptTasks returns true if every task uses the "script" runner (no network needed).
+// isPositiveBalance returns true if balance string represents a value > 0.
+func isPositiveBalance(balance string) bool {
+	f, err := strconv.ParseFloat(balance, 64)
+	if err != nil {
+		return false
+	}
+	return f > 0.001 // treat anything below $0.001 as effectively zero
+}
+
+// providerFromModel extracts provider from "provider/model" format used by opencode runners.
+func providerFromModel(model string) string {
+	if model == "" {
+		return ""
+	}
+	parts := strings.SplitN(model, "/", 2)
+	if len(parts) < 2 {
+		return ""
+	}
+	switch parts[0] {
+	case "deepseek":
+		return "deepseek"
+	case "zai":
+		return "" // ZAI uses its own API key, not a shared provider quota
+	default:
+		return ""
+	}
+}
+
 func allScriptTasks(tasks []task.Task) bool {
 	for _, t := range tasks {
 		if t.Runner != "script" {
