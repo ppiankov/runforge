@@ -59,8 +59,9 @@ func newRunCmd() *cobra.Command {
 	)
 
 	cmd := &cobra.Command{
-		Use:   "run",
+		Use:   "run [files...]",
 		Short: "Execute tasks with dependency-aware parallelism",
+		Long:  "Run tasks from one or more JSON files. Files can be passed as positional args,\nvia --tasks flag (glob or comma-separated), or both.\n\nExamples:\n  tokencontrol run /tmp/phase1.json /tmp/phase2.json\n  tokencontrol run /tmp/pack20-phase*.json\n  tokencontrol run --tasks '/tmp/a.json,/tmp/b.json'",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			cfg, err := config.LoadSettings(configFile)
 			if err != nil {
@@ -111,11 +112,19 @@ func newRunCmd() *cobra.Command {
 			if noVerify {
 				verify = false
 			}
+			// positional args override --tasks default; append to --tasks if explicitly set
+			if len(args) > 0 {
+				if cmd.Flags().Changed("tasks") {
+					tasksFile = tasksFile + "," + strings.Join(args, ",")
+				} else {
+					tasksFile = strings.Join(args, ",")
+				}
+			}
 			return runTasks(tasksFile, workers, verify, reposDir, filter, dryRun, maxRuntime, idleTimeout, failFast, tuiMode, allowFree, retry, noAutoCommit, parallelRepo, noMergeResolve, strictReadiness, maxRetries, quotaCfg, cfg)
 		},
 	}
 
-	cmd.Flags().StringVar(&tasksFile, "tasks", "tokencontrol.json", "path to tasks JSON file (supports glob patterns)")
+	cmd.Flags().StringVar(&tasksFile, "tasks", "tokencontrol.json", "task files: path, glob, or comma-separated (e.g. '/tmp/pack*.json' or 'a.json,b.json')")
 	cmd.Flags().IntVar(&workers, "workers", 4, "max parallel runner processes")
 	cmd.Flags().BoolVar(&verify, "verify", true, "run make test && make lint per repo after completion")
 	cmd.Flags().BoolVar(&noVerify, "no-verify", false, "disable post-run verification")

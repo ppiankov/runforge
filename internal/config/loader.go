@@ -67,19 +67,36 @@ func loadRaw(path string) (*task.TaskFile, error) {
 // ResolveGlob expands a --tasks argument into concrete file paths.
 // If the argument contains glob metacharacters it expands the pattern;
 // otherwise it returns the literal path.
+// ResolveGlob resolves a tasks path specification to concrete file paths.
+// Supports glob patterns ("/tmp/pack*.json"), comma-separated paths
+// ("/tmp/a.json,/tmp/b.json"), and plain file paths.
 func ResolveGlob(pattern string) ([]string, error) {
-	if !strings.ContainsAny(pattern, "*?[") {
-		return []string{pattern}, nil
+	// split on commas first — each segment can be a glob or plain path
+	segments := strings.Split(pattern, ",")
+	var all []string
+	for _, seg := range segments {
+		seg = strings.TrimSpace(seg)
+		if seg == "" {
+			continue
+		}
+		if !strings.ContainsAny(seg, "*?[") {
+			all = append(all, seg)
+			continue
+		}
+		matches, err := filepath.Glob(seg)
+		if err != nil {
+			return nil, fmt.Errorf("invalid glob pattern %q: %w", seg, err)
+		}
+		if len(matches) == 0 {
+			return nil, fmt.Errorf("no files match pattern %q", seg)
+		}
+		all = append(all, matches...)
 	}
-	matches, err := filepath.Glob(pattern)
-	if err != nil {
-		return nil, fmt.Errorf("invalid glob pattern %q: %w", pattern, err)
+	if len(all) == 0 {
+		return nil, fmt.Errorf("no files match %q", pattern)
 	}
-	if len(matches) == 0 {
-		return nil, fmt.Errorf("no files match pattern %q", pattern)
-	}
-	sort.Strings(matches)
-	return matches, nil
+	sort.Strings(all)
+	return all, nil
 }
 
 // LoadMulti loads multiple task files and returns them individually.
