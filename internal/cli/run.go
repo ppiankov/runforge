@@ -762,7 +762,7 @@ func executeRun(cfg execRunConfig) (*execRunResult, error) {
 			RequeueTask: sched.RequeueTask,
 			Runners:     runnerNames,
 		}
-		tuiModel := reporter.NewTUIModel(cfg.graph, sched.Results, cancel, logPath, start, agentPool, taskCtrl)
+		tuiModel := reporter.NewTUIModel(cfg.graph, sched.Results, cancel, logPath, start, agentPool, taskCtrl, runDir)
 		tuiProgram = tea.NewProgram(tuiModel, tea.WithAltScreen())
 		go func() {
 			if _, err := tuiProgram.Run(); err != nil {

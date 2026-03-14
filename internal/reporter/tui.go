@@ -126,6 +126,14 @@ type overlayState struct {
 	runners []string
 }
 
+// taskActivity tracks per-task output activity for progress display.
+type taskActivity struct {
+	lastActive time.Time // last time stderr.log was modified
+	lastAction string    // last meaningful line from stderr.log
+	stderrSize int64     // file size at last check
+	notified   bool      // true if stuck toast was already shown
+}
+
 // TUIModel is the Bubbletea model for tokencontrol live display.
 type TUIModel struct {
 	graph      *task.Graph
@@ -163,6 +171,17 @@ type TUIModel struct {
 
 	// Toast messages (temporary flash)
 	toasts []toast
+
+	// Task activity tracking (WO-83)
+	runDir       string                  // run output directory for locating task output
+	activity     map[string]taskActivity // per-task activity state
+	detailTaskID string                  // when set, bottom panel shows this task's stderr
+
+	// Detail panel log state (separate from main log)
+	detailLines      []string
+	detailOffset     int64
+	detailScroll     int
+	detailAutoScroll bool
 }
 
 // confirmState manages inline confirmation prompts in the agent panel.
@@ -188,17 +207,21 @@ type GraylistEventMsg struct {
 
 // NewTUIModel creates a new TUI model. When logPath is non-empty, a split layout
 // is shown with task panel + bottom panel (log/agents, Tab-switchable).
-func NewTUIModel(graph *task.Graph, getResults func() map[string]*task.TaskResult, cancelRun func(), logPath string, startTime time.Time, agentPool *AgentPoolInfo, taskCtrl *TaskControl) TUIModel {
+// runDir is the run output directory (e.g. .tokencontrol/runs/<runID>/) for task activity tracking.
+func NewTUIModel(graph *task.Graph, getResults func() map[string]*task.TaskResult, cancelRun func(), logPath string, startTime time.Time, agentPool *AgentPoolInfo, taskCtrl *TaskControl, runDir string) TUIModel {
 	return TUIModel{
-		graph:         graph,
-		getResults:    getResults,
-		cancelRun:     cancelRun,
-		startTime:     startTime,
-		results:       make(map[string]*task.TaskResult),
-		logPath:       logPath,
-		logAutoScroll: true,
-		agentPool:     agentPool,
-		taskCtrl:      taskCtrl,
+		graph:            graph,
+		getResults:       getResults,
+		cancelRun:        cancelRun,
+		startTime:        startTime,
+		results:          make(map[string]*task.TaskResult),
+		logPath:          logPath,
+		logAutoScroll:    true,
+		agentPool:        agentPool,
+		taskCtrl:         taskCtrl,
+		runDir:           runDir,
+		activity:         make(map[string]taskActivity),
+		detailAutoScroll: true,
 	}
 }
 
@@ -353,6 +376,35 @@ func (m TUIModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				}
 			}
 
+		case "enter":
+			// Drilldown: show selected task's stderr in bottom panel
+			if m.focusedPanel == panelTasks && m.showBottomPanel() {
+				if id := m.cursorTaskID(); id != "" {
+					if m.detailTaskID == id {
+						// toggle off
+						m.detailTaskID = ""
+						m.detailLines = nil
+						m.detailOffset = 0
+					} else {
+						m.detailTaskID = id
+						m.detailLines = nil
+						m.detailOffset = 0
+						m.detailAutoScroll = true
+						m.readDetailLines()
+						m.focusedPanel = panelLogs // auto-focus log panel
+					}
+				}
+			}
+
+		case "esc":
+			// Exit drilldown
+			if m.detailTaskID != "" {
+				m.detailTaskID = ""
+				m.detailLines = nil
+				m.detailOffset = 0
+				return m, nil
+			}
+
 		case "r":
 			// Open runner picker for queued/failed task
 			if m.focusedPanel == panelTasks && m.taskCtrl != nil && len(m.taskCtrl.Runners) > 0 {
@@ -382,6 +434,8 @@ func (m TUIModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.results = m.getResults()
 		}
 		m.readLogLines()
+		m.updateActivity()
+		m.readDetailLines()
 		m.pruneToasts()
 		m.frame++
 		return m, tickCmd()
@@ -754,6 +808,161 @@ func (m *TUIModel) readLogLines() {
 	}
 }
 
+// updateActivity checks stderr.log for each running task to track activity.
+func (m *TUIModel) updateActivity() {
+	if m.runDir == "" {
+		return
+	}
+	now := time.Now()
+	stuckThreshold := 3 * time.Minute
+
+	for id, res := range m.results {
+		if res.State != task.StateRunning {
+			continue
+		}
+		stderrPath := fmt.Sprintf("%s/%s/stderr.log", m.runDir, id)
+		info, err := os.Stat(stderrPath)
+		if err != nil {
+			continue
+		}
+
+		act := m.activity[id]
+
+		// check if file grew
+		if info.Size() > act.stderrSize {
+			act.lastActive = now
+			act.stderrSize = info.Size()
+			act.notified = false
+
+			// read last line for action summary
+			act.lastAction = readLastLine(stderrPath)
+		}
+
+		// initialize lastActive for new tasks
+		if act.lastActive.IsZero() {
+			act.lastActive = res.StartedAt
+		}
+
+		// stuck detection toast
+		if !act.notified && now.Sub(act.lastActive) > stuckThreshold {
+			act.notified = true
+			m.addToast(fmt.Sprintf("⚠ %s appears stuck (no output %s) — x:cancel R:requeue",
+				id, now.Sub(act.lastActive).Truncate(time.Second)))
+		}
+
+		m.activity[id] = act
+	}
+}
+
+// readDetailLines reads stderr.log for the drilldown task.
+func (m *TUIModel) readDetailLines() {
+	if m.detailTaskID == "" || m.runDir == "" {
+		return
+	}
+	stderrPath := fmt.Sprintf("%s/%s/stderr.log", m.runDir, m.detailTaskID)
+	f, err := os.Open(stderrPath)
+	if err != nil {
+		return
+	}
+	defer func() { _ = f.Close() }()
+
+	if m.detailOffset > 0 {
+		if _, err := f.Seek(m.detailOffset, io.SeekStart); err != nil {
+			return
+		}
+	}
+
+	scanner := bufio.NewScanner(f)
+	scanner.Buffer(make([]byte, 64*1024), 64*1024)
+	newBytes := int64(0)
+
+	for scanner.Scan() {
+		line := scanner.Text()
+		newBytes += int64(len(scanner.Bytes())) + 1
+		m.detailLines = append(m.detailLines, line)
+	}
+
+	m.detailOffset += newBytes
+
+	if len(m.detailLines) > maxLogLines {
+		m.detailLines = m.detailLines[len(m.detailLines)-maxLogLines:]
+	}
+
+	if m.detailAutoScroll {
+		m.detailScroll = m.maxDetailScroll()
+	}
+}
+
+func (m TUIModel) maxDetailScroll() int {
+	_, logH := m.panelHeights()
+	vis := m.visibleLogLines(logH)
+	if len(m.detailLines) <= vis {
+		return 0
+	}
+	return len(m.detailLines) - vis
+}
+
+// readLastLine reads the last non-empty line from a file.
+func readLastLine(path string) string {
+	f, err := os.Open(path)
+	if err != nil {
+		return ""
+	}
+	defer func() { _ = f.Close() }()
+
+	// read last 4KB
+	info, err := f.Stat()
+	if err != nil || info.Size() == 0 {
+		return ""
+	}
+	offset := info.Size() - 4096
+	if offset < 0 {
+		offset = 0
+	}
+	if _, err := f.Seek(offset, io.SeekStart); err != nil {
+		return ""
+	}
+
+	buf := make([]byte, info.Size()-offset)
+	n, _ := f.Read(buf)
+	if n == 0 {
+		return ""
+	}
+
+	lines := strings.Split(strings.TrimRight(string(buf[:n]), "\n"), "\n")
+	for i := len(lines) - 1; i >= 0; i-- {
+		line := strings.TrimSpace(lines[i])
+		if line != "" {
+			if len(line) > 60 {
+				line = line[:60]
+			}
+			return line
+		}
+	}
+	return ""
+}
+
+// activityAge returns how long since the task last produced output.
+func (m TUIModel) activityAge(taskID string) time.Duration {
+	act, ok := m.activity[taskID]
+	if !ok || act.lastActive.IsZero() {
+		return 0
+	}
+	return time.Since(act.lastActive)
+}
+
+// activitySpinnerStyle returns a colored style based on activity recency.
+func activitySpinnerStyle(age time.Duration) lipgloss.Style {
+	switch {
+	case age < 10*time.Second:
+		return lipgloss.NewStyle().Foreground(lipgloss.Color("10")) // green
+	case age < 2*time.Minute:
+		return lipgloss.NewStyle().Foreground(lipgloss.Color("11")) // yellow
+	default:
+		return lipgloss.NewStyle().Foreground(lipgloss.Color("9")) // red
+	}
+}
+
 // isLogError checks if a log line should be highlighted in red.
 func isLogError(line string) bool {
 	lower := strings.ToLower(line)
@@ -824,7 +1033,7 @@ func (m TUIModel) View() string {
 	}
 	helpKeys := "tab: switch [%s]  ↑↓/jk: scroll  g/G: top/bottom  p: pause  q: quit"
 	if m.taskCtrl != nil && m.focusedPanel == panelTasks {
-		helpKeys = "tab: switch [%s]  ↑↓/jk: cursor  x: cancel  R: requeue  r: runner  q: quit"
+		helpKeys = "tab: switch [%s]  ↑↓/jk: cursor  enter: detail  x: cancel  R: requeue  r: runner  q: quit"
 	} else if m.focusedPanel == panelAgents {
 		helpKeys = "tab: switch [%s]  ↑↓/jk: cursor  g: graylist  w: whitelist  q: quit"
 	}
@@ -987,7 +1196,12 @@ func (m TUIModel) renderTaskContent(panelHeight int) string {
 }
 
 // renderLogContent builds the log panel content for the split layout.
+// When detailTaskID is set, shows that task's stderr instead of run.log.
 func (m TUIModel) renderLogContent(panelHeight int) string {
+	if m.detailTaskID != "" {
+		return m.renderDetailContent(panelHeight)
+	}
+
 	var b strings.Builder
 
 	// header with file path
@@ -1016,6 +1230,57 @@ func (m TUIModel) renderLogContent(panelHeight int) string {
 	maxW := m.width - 4 // borders + padding
 	for i := start; i < end; i++ {
 		line := m.logLines[i]
+		if maxW > 0 && len(line) > maxW {
+			line = line[:maxW]
+		}
+		if isLogError(line) {
+			b.WriteString(logErrorStyle.Render(line))
+		} else {
+			b.WriteString(line)
+		}
+		if i < end-1 {
+			b.WriteString("\n")
+		}
+	}
+
+	return b.String()
+}
+
+// renderDetailContent builds the detail drilldown panel for a specific task.
+func (m TUIModel) renderDetailContent(panelHeight int) string {
+	var b strings.Builder
+
+	// header: task ID + runner
+	runner := ""
+	if res := m.results[m.detailTaskID]; res != nil {
+		runner = res.RunnerUsed
+	}
+	header := fmt.Sprintf("TASK %s", m.detailTaskID)
+	if runner != "" {
+		header += " — " + runner
+	}
+	b.WriteString(runStyle.Render(header))
+	b.WriteString(dimStyle.Render("  [esc: back]"))
+	b.WriteString("\n")
+
+	if len(m.detailLines) == 0 {
+		b.WriteString(dimStyle.Render("  (waiting for task output...)"))
+		return b.String()
+	}
+
+	vis := m.visibleLogLines(panelHeight)
+	start := m.detailScroll
+	end := start + vis
+	if end > len(m.detailLines) {
+		end = len(m.detailLines)
+	}
+	if start > len(m.detailLines) {
+		start = len(m.detailLines)
+	}
+
+	maxW := m.width - 4
+	for i := start; i < end; i++ {
+		line := m.detailLines[i]
 		if maxW > 0 && len(line) > maxW {
 			line = line[:maxW]
 		}
@@ -1348,8 +1613,35 @@ func (m TUIModel) fmtRunning(res *task.TaskResult, t *task.Task, spinner string,
 	}
 	repo := repoShort(t)
 	elapsed := time.Since(res.StartedAt).Truncate(time.Second)
-	f := fmt.Sprintf("  %%s %%-10s %%-%ds %%-%ds %%-%ds %%s", w.id, w.runner, w.repo)
-	return runStyle.Render(fmt.Sprintf(f, spinner, "running", res.TaskID, rn, repo, elapsed))
+
+	// activity-colored spinner
+	age := m.activityAge(res.TaskID)
+	var coloredSpinner string
+	if age > 0 {
+		coloredSpinner = activitySpinnerStyle(age).Render(spinner)
+	} else {
+		coloredSpinner = runStyle.Render(spinner)
+	}
+
+	// last action summary
+	action := ""
+	if act, ok := m.activity[res.TaskID]; ok && act.lastAction != "" {
+		action = act.lastAction
+		// truncate to fit available width
+		maxAction := m.width - w.id - w.runner - w.repo - 35 // approximate fixed chars
+		if maxAction < 10 {
+			maxAction = 10
+		}
+		if len(action) > maxAction {
+			action = action[:maxAction-3] + "..."
+		}
+		action = dimStyle.Render(action)
+	}
+
+	f := fmt.Sprintf("  %%s %%-10s %%-%ds %%-%ds %%-%ds %%-8s %%s", w.id, w.runner, w.repo)
+	base := fmt.Sprintf(f, " ", "running", res.TaskID, rn, repo, elapsed)
+	// replace leading space with colored spinner (raw string to avoid double-style)
+	return coloredSpinner + runStyle.Render(base[1:]) + " " + action
 }
 
 func (m TUIModel) fmtDone(res *task.TaskResult, t *task.Task, w colWidths) string {

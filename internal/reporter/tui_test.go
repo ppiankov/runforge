@@ -80,7 +80,7 @@ func TestFmtRunning_ShowsRunner(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	m := NewTUIModel(g, func() map[string]*task.TaskResult { return nil }, nil, "", time.Now(), nil, nil)
+	m := NewTUIModel(g, func() map[string]*task.TaskResult { return nil }, nil, "", time.Now(), nil, nil, "")
 	m.width = 120
 	m.height = 40
 
@@ -106,7 +106,7 @@ func TestFmtDone_ShowsTokens(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	m := NewTUIModel(g, func() map[string]*task.TaskResult { return nil }, nil, "", time.Now(), nil, nil)
+	m := NewTUIModel(g, func() map[string]*task.TaskResult { return nil }, nil, "", time.Now(), nil, nil, "")
 	m.width = 120
 	m.height = 40
 
@@ -131,7 +131,7 @@ func TestFmtDone_ShowsTokens(t *testing.T) {
 func TestShowBottomPanel_Hidden_WhenNoPath(t *testing.T) {
 	tasks := []task.Task{{ID: "t1", Repo: "org/repo", Priority: 1, Title: "T"}}
 	g, _ := task.BuildGraph(tasks)
-	m := NewTUIModel(g, func() map[string]*task.TaskResult { return nil }, nil, "", time.Now(), nil, nil)
+	m := NewTUIModel(g, func() map[string]*task.TaskResult { return nil }, nil, "", time.Now(), nil, nil, "")
 	m.width = 120
 	m.height = 40
 	if m.showBottomPanel() {
@@ -142,7 +142,7 @@ func TestShowBottomPanel_Hidden_WhenNoPath(t *testing.T) {
 func TestShowBottomPanel_Hidden_WhenTooShort(t *testing.T) {
 	tasks := []task.Task{{ID: "t1", Repo: "org/repo", Priority: 1, Title: "T"}}
 	g, _ := task.BuildGraph(tasks)
-	m := NewTUIModel(g, func() map[string]*task.TaskResult { return nil }, nil, "/tmp/run.log", time.Now(), nil, nil)
+	m := NewTUIModel(g, func() map[string]*task.TaskResult { return nil }, nil, "/tmp/run.log", time.Now(), nil, nil, "")
 	m.width = 120
 	m.height = 15
 	if m.showBottomPanel() {
@@ -153,7 +153,7 @@ func TestShowBottomPanel_Hidden_WhenTooShort(t *testing.T) {
 func TestShowBottomPanel_Visible(t *testing.T) {
 	tasks := []task.Task{{ID: "t1", Repo: "org/repo", Priority: 1, Title: "T"}}
 	g, _ := task.BuildGraph(tasks)
-	m := NewTUIModel(g, func() map[string]*task.TaskResult { return nil }, nil, "/tmp/run.log", time.Now(), nil, nil)
+	m := NewTUIModel(g, func() map[string]*task.TaskResult { return nil }, nil, "/tmp/run.log", time.Now(), nil, nil, "")
 	m.width = 120
 	m.height = 40
 	if !m.showBottomPanel() {
@@ -164,7 +164,7 @@ func TestShowBottomPanel_Visible(t *testing.T) {
 func TestPanelHeights_70_30(t *testing.T) {
 	tasks := []task.Task{{ID: "t1", Repo: "org/repo", Priority: 1, Title: "T"}}
 	g, _ := task.BuildGraph(tasks)
-	m := NewTUIModel(g, func() map[string]*task.TaskResult { return nil }, nil, "/tmp/run.log", time.Now(), nil, nil)
+	m := NewTUIModel(g, func() map[string]*task.TaskResult { return nil }, nil, "/tmp/run.log", time.Now(), nil, nil, "")
 	m.width = 120
 	m.height = 40
 	taskH, logH := m.panelHeights()
@@ -199,7 +199,7 @@ func TestIsLogError(t *testing.T) {
 func TestTabSwitchesFocus(t *testing.T) {
 	tasks := []task.Task{{ID: "t1", Repo: "org/repo", Priority: 1, Title: "T"}}
 	g, _ := task.BuildGraph(tasks)
-	m := NewTUIModel(g, func() map[string]*task.TaskResult { return nil }, nil, "/tmp/run.log", time.Now(), nil, nil)
+	m := NewTUIModel(g, func() map[string]*task.TaskResult { return nil }, nil, "/tmp/run.log", time.Now(), nil, nil, "")
 	m.width = 120
 	m.height = 40
 
@@ -229,7 +229,7 @@ func TestTabSwitchesFocus(t *testing.T) {
 func TestViewSplitRendersLogHeader(t *testing.T) {
 	tasks := []task.Task{{ID: "t1", Repo: "org/repo", Priority: 1, Title: "T"}}
 	g, _ := task.BuildGraph(tasks)
-	m := NewTUIModel(g, func() map[string]*task.TaskResult { return nil }, nil, "/tmp/test-run.log", time.Now(), nil, nil)
+	m := NewTUIModel(g, func() map[string]*task.TaskResult { return nil }, nil, "/tmp/test-run.log", time.Now(), nil, nil, "")
 	m.width = 120
 	m.height = 40
 
@@ -245,7 +245,7 @@ func TestViewSplitRendersLogHeader(t *testing.T) {
 func TestViewSinglePanel_WhenNoLogPath(t *testing.T) {
 	tasks := []task.Task{{ID: "t1", Repo: "org/repo", Priority: 1, Title: "T"}}
 	g, _ := task.BuildGraph(tasks)
-	m := NewTUIModel(g, func() map[string]*task.TaskResult { return nil }, nil, "", time.Now(), nil, nil)
+	m := NewTUIModel(g, func() map[string]*task.TaskResult { return nil }, nil, "", time.Now(), nil, nil, "")
 	m.width = 120
 	m.height = 40
 
@@ -267,7 +267,7 @@ func TestReadLogLines(t *testing.T) {
 
 	tasks := []task.Task{{ID: "t1", Repo: "org/repo", Priority: 1, Title: "T"}}
 	g, _ := task.BuildGraph(tasks)
-	m := NewTUIModel(g, func() map[string]*task.TaskResult { return nil }, nil, logPath, time.Now(), nil, nil)
+	m := NewTUIModel(g, func() map[string]*task.TaskResult { return nil }, nil, logPath, time.Now(), nil, nil, "")
 	m.width = 120
 	m.height = 40
 
@@ -302,7 +302,7 @@ func TestAgentStats(t *testing.T) {
 		"t2": {TaskID: "t2", State: task.StateFailed, RunnerUsed: "codex"},
 		"t3": {TaskID: "t3", State: task.StateRunning, RunnerUsed: "claude"},
 	}
-	m := NewTUIModel(g, func() map[string]*task.TaskResult { return results }, nil, "", time.Now(), nil, nil)
+	m := NewTUIModel(g, func() map[string]*task.TaskResult { return results }, nil, "", time.Now(), nil, nil, "")
 	m.results = results
 
 	stats := m.agentStats()
@@ -340,7 +340,7 @@ func TestRenderAgentContent_WithAgents(t *testing.T) {
 		},
 		GetQuotas: func() []QuotaInfo { return nil },
 	}
-	m := NewTUIModel(g, func() map[string]*task.TaskResult { return nil }, nil, "", time.Now(), pool, nil)
+	m := NewTUIModel(g, func() map[string]*task.TaskResult { return nil }, nil, "", time.Now(), pool, nil, "")
 	m.width = 120
 	m.height = 40
 
@@ -366,7 +366,7 @@ func TestRenderAgentContent_WithQuotas(t *testing.T) {
 			}
 		},
 	}
-	m := NewTUIModel(g, func() map[string]*task.TaskResult { return nil }, nil, "", time.Now(), pool, nil)
+	m := NewTUIModel(g, func() map[string]*task.TaskResult { return nil }, nil, "", time.Now(), pool, nil, "")
 	m.width = 120
 	m.height = 40
 
@@ -383,7 +383,7 @@ func TestShowBottomPanel_WithAgentPoolOnly(t *testing.T) {
 	tasks := []task.Task{{ID: "t1", Repo: "org/repo", Priority: 1, Title: "T"}}
 	g, _ := task.BuildGraph(tasks)
 	pool := &AgentPoolInfo{Agents: []AgentInfo{{Name: "codex", Skills: 1}}}
-	m := NewTUIModel(g, func() map[string]*task.TaskResult { return nil }, nil, "", time.Now(), pool, nil)
+	m := NewTUIModel(g, func() map[string]*task.TaskResult { return nil }, nil, "", time.Now(), pool, nil, "")
 	m.width = 120
 	m.height = 40
 	if !m.showBottomPanel() {
@@ -395,7 +395,7 @@ func TestSessionTimer_InHeader(t *testing.T) {
 	tasks := []task.Task{{ID: "t1", Repo: "org/repo", Priority: 1, Title: "T"}}
 	g, _ := task.BuildGraph(tasks)
 	startTime := time.Now().Add(-5 * time.Minute)
-	m := NewTUIModel(g, func() map[string]*task.TaskResult { return nil }, nil, "", startTime, nil, nil)
+	m := NewTUIModel(g, func() map[string]*task.TaskResult { return nil }, nil, "", startTime, nil, nil, "")
 	m.width = 120
 	m.height = 40
 
@@ -417,7 +417,7 @@ func TestTaskCursorMovement(t *testing.T) {
 		RequeueTask: func(string, string) {},
 		Runners:     []string{"codex", "claude"},
 	}
-	m := NewTUIModel(g, func() map[string]*task.TaskResult { return nil }, nil, "", time.Now(), nil, ctrl)
+	m := NewTUIModel(g, func() map[string]*task.TaskResult { return nil }, nil, "", time.Now(), nil, ctrl, "")
 	m.width = 120
 	m.height = 40
 
@@ -465,7 +465,7 @@ func TestCursorTaskID(t *testing.T) {
 		RequeueTask: func(string, string) {},
 		Runners:     []string{"codex"},
 	}
-	m := NewTUIModel(g, func() map[string]*task.TaskResult { return nil }, nil, "", time.Now(), nil, ctrl)
+	m := NewTUIModel(g, func() map[string]*task.TaskResult { return nil }, nil, "", time.Now(), nil, ctrl, "")
 	m.width = 120
 	m.height = 40
 
@@ -490,7 +490,7 @@ func TestOverlay_OpensAndCloses(t *testing.T) {
 	results := map[string]*task.TaskResult{
 		"t1": {TaskID: "t1", State: task.StateFailed, Error: "test fail"},
 	}
-	m := NewTUIModel(g, func() map[string]*task.TaskResult { return results }, nil, "", time.Now(), nil, ctrl)
+	m := NewTUIModel(g, func() map[string]*task.TaskResult { return results }, nil, "", time.Now(), nil, ctrl, "")
 	m.results = results
 	m.width = 120
 	m.height = 40
@@ -534,7 +534,7 @@ func TestOverlay_EscCancels(t *testing.T) {
 	results := map[string]*task.TaskResult{
 		"t1": {TaskID: "t1", State: task.StateFailed},
 	}
-	m := NewTUIModel(g, func() map[string]*task.TaskResult { return results }, nil, "", time.Now(), nil, ctrl)
+	m := NewTUIModel(g, func() map[string]*task.TaskResult { return results }, nil, "", time.Now(), nil, ctrl, "")
 	m.results = results
 	m.width = 120
 	m.height = 40
@@ -566,7 +566,7 @@ func TestCancelKey_NoOpOnCompleted(t *testing.T) {
 	results := map[string]*task.TaskResult{
 		"t1": {TaskID: "t1", State: task.StateCompleted},
 	}
-	m := NewTUIModel(g, func() map[string]*task.TaskResult { return results }, nil, "", time.Now(), nil, ctrl)
+	m := NewTUIModel(g, func() map[string]*task.TaskResult { return results }, nil, "", time.Now(), nil, ctrl, "")
 	m.results = results
 	m.width = 120
 	m.height = 40
@@ -589,7 +589,7 @@ func TestBuildTaskLines_ShowsCursor(t *testing.T) {
 		RequeueTask: func(string, string) {},
 		Runners:     []string{"codex"},
 	}
-	m := NewTUIModel(g, func() map[string]*task.TaskResult { return nil }, nil, "", time.Now(), nil, ctrl)
+	m := NewTUIModel(g, func() map[string]*task.TaskResult { return nil }, nil, "", time.Now(), nil, ctrl, "")
 	m.width = 120
 	m.height = 40
 
