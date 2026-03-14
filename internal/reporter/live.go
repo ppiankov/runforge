@@ -118,7 +118,7 @@ func (lr *LiveReporter) buildLines(results map[string]*task.TaskResult) []string
 		switch res.State {
 		case task.StateFailed:
 			failed = append(failed, res)
-		case task.StateRunning:
+		case task.StateWaiting, task.StateRunning:
 			running = append(running, res)
 		case task.StateCompleted:
 			completed = append(completed, res)

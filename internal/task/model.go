@@ -11,6 +11,7 @@ type TaskState int
 const (
 	StatePending TaskState = iota
 	StateReady
+	StateWaiting // worker picked up, waiting for repo lock
 	StateRunning
 	StateCompleted
 	StateFailed
@@ -24,6 +25,8 @@ func (s TaskState) String() string {
 		return "PENDING"
 	case StateReady:
 		return "READY"
+	case StateWaiting:
+		return "WAITING"
 	case StateRunning:
 		return "RUNNING"
 	case StateCompleted:

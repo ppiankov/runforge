@@ -586,8 +586,8 @@ func executeRun(cfg execRunConfig) (*execRunResult, error) {
 			execDir = repoDir
 		}
 
-		// update StartedAt to actual execution start (after lock/worktree), not queue time
-		sched.SetStartedAt(t.ID, time.Now())
+		// transition from Waiting → Running now that lock/worktree is acquired
+		sched.SetRunning(t.ID)
 
 		// mark task as in_progress in persistent state
 		if cfg.stateTracker != nil {
@@ -1377,7 +1377,7 @@ func writeStatusFile(total int, results map[string]*task.TaskResult) {
 	var running, completed, failed, rateLimited int
 	for _, r := range results {
 		switch r.State {
-		case task.StateRunning:
+		case task.StateWaiting, task.StateRunning:
 			running++
 		case task.StateCompleted:
 			completed++

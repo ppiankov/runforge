@@ -250,7 +250,7 @@ func (m MissionControlModel) renderCurrentRun() string {
 	var running, completed, failed, queued int
 	for _, r := range run.Results {
 		switch r.State {
-		case task.StateRunning:
+		case task.StateWaiting, task.StateRunning:
 			running++
 		case task.StateCompleted:
 			completed++
@@ -277,6 +277,9 @@ func (m MissionControlModel) renderCurrentRun() string {
 		case task.StateFailed:
 			icon = "✗"
 			style = failedStyle.Render(fmt.Sprintf("%-10s", "FAILED"))
+		case task.StateWaiting:
+			icon = "⏳"
+			style = warnStyle.Render(fmt.Sprintf("%-10s", "waiting"))
 		case task.StateRunning:
 			icon = spinnerChars[m.frame%len(spinnerChars)]
 			style = runStyle.Render(fmt.Sprintf("%-10s", "running"))

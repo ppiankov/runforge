@@ -357,7 +357,7 @@ func (m TUIModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			// Cancel running task
 			if m.focusedPanel == panelTasks && m.taskCtrl != nil {
 				if id := m.cursorTaskID(); id != "" {
-					if res := m.results[id]; res != nil && res.State == task.StateRunning {
+					if res := m.results[id]; res != nil && (res.State == task.StateRunning || res.State == task.StateWaiting) {
 						m.taskCtrl.CancelTask(id)
 					}
 				}
@@ -1060,7 +1060,7 @@ func (m TUIModel) viewSinglePanel() string {
 		switch res.State {
 		case task.StateCompleted:
 			completed++
-		case task.StateRunning:
+		case task.StateWaiting, task.StateRunning:
 			running++
 		case task.StateFailed, task.StateSkipped:
 			failed++
@@ -1144,7 +1144,7 @@ func (m TUIModel) renderTaskContent(panelHeight int) string {
 		switch res.State {
 		case task.StateCompleted:
 			completed++
-		case task.StateRunning:
+		case task.StateWaiting, task.StateRunning:
 			running++
 		case task.StateFailed, task.StateSkipped:
 			failed++
@@ -1450,7 +1450,7 @@ func (m TUIModel) agentStats() map[string]agentStat {
 			s.Done++
 		case task.StateFailed:
 			s.Failed++
-		case task.StateRunning:
+		case task.StateWaiting, task.StateRunning:
 			s.Running++
 		}
 		if res.TokensUsed != nil {
@@ -1487,6 +1487,8 @@ func (m TUIModel) sortedTaskEntries() []taskEntry {
 		switch res.State {
 		case task.StateFailed, task.StateSkipped:
 			failed = append(failed, e)
+		case task.StateWaiting:
+			running = append(running, e) // show waiting tasks with running tasks
 		case task.StateRunning:
 			running = append(running, e)
 		case task.StateCompleted:
@@ -1575,6 +1577,8 @@ func (m TUIModel) buildTaskLines() []string {
 			line = prefix + m.fmtQueued(e.t, w)
 		case e.state == task.StateFailed || e.state == task.StateSkipped:
 			line = prefix + m.fmtFailed(e.res, e.t, w)
+		case e.state == task.StateWaiting:
+			line = prefix + m.fmtWaiting(e.res, e.t, w)
 		case e.state == task.StateRunning:
 			line = prefix + m.fmtRunning(e.res, e.t, spinner, w)
 		case e.state == task.StateCompleted:
@@ -1604,6 +1608,12 @@ func (m TUIModel) fmtFailed(res *task.TaskResult, t *task.Task, w colWidths) str
 	}
 	f := fmt.Sprintf("  %%s %%-10s %%-%ds %%-%ds %%-%ds %%s", w.id, w.runner, w.repo)
 	return failedStyle.Render(fmt.Sprintf(f, icon, label, res.TaskID, trail, repo, errMsg))
+}
+
+func (m TUIModel) fmtWaiting(res *task.TaskResult, t *task.Task, w colWidths) string {
+	repo := repoShort(t)
+	f := fmt.Sprintf("  ⏳ %%-10s %%-%ds %%-%ds %%-%ds %%s", w.id, w.runner, w.repo)
+	return rlStyle.Render(fmt.Sprintf(f, "waiting", res.TaskID, "", repo, "repo lock"))
 }
 
 func (m TUIModel) fmtRunning(res *task.TaskResult, t *task.Task, spinner string, w colWidths) string {
@@ -1714,7 +1724,7 @@ func (m TUIModel) summaryFooter() string {
 		if res.State == task.StateCompleted {
 			completed++
 		}
-		if res.RunnerUsed != "" && (res.State == task.StateRunning || res.State == task.StateCompleted) {
+		if res.RunnerUsed != "" && (res.State == task.StateRunning || res.State == task.StateWaiting || res.State == task.StateCompleted) {
 			runnerCounts[res.RunnerUsed]++
 		}
 		if res.TokensUsed != nil {

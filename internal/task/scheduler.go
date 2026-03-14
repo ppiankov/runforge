@@ -147,14 +147,17 @@ func (s *Scheduler) SetRunnerUsed(id, runner string) {
 	s.mu.Unlock()
 }
 
-// SetStartedAt updates the task's StartedAt time. Called by ExecFn after
-// acquiring the repo lock so the TUI shows actual execution time, not lock wait time.
-func (s *Scheduler) SetStartedAt(id string, t time.Time) {
+// SetRunning transitions a task from Waiting to Running and sets StartedAt.
+// Called by ExecFn after acquiring the repo lock so the TUI shows actual
+// execution time, not lock wait time.
+func (s *Scheduler) SetRunning(id string) {
 	s.mu.Lock()
 	if r, ok := s.results[id]; ok {
-		r.StartedAt = t
+		r.State = StateRunning
+		r.StartedAt = time.Now()
 	}
 	s.mu.Unlock()
+	s.notify(id)
 }
 
 // CancelTask cancels a running task by invoking its per-task context cancel.
@@ -163,7 +166,7 @@ func (s *Scheduler) CancelTask(id string) {
 	s.mu.Lock()
 	cancel, ok := s.taskCancel[id]
 	r := s.results[id]
-	isRunning := r != nil && r.State == StateRunning
+	isRunning := r != nil && (r.State == StateRunning || r.State == StateWaiting)
 	s.mu.Unlock()
 
 	if ok && isRunning {
@@ -229,8 +232,7 @@ func (s *Scheduler) execute(ctx context.Context, id string, work chan<- string) 
 	taskCtx, taskCancel := context.WithCancel(ctx)
 	s.mu.Lock()
 	s.taskCancel[id] = taskCancel
-	s.results[id].State = StateRunning
-	s.results[id].StartedAt = time.Now()
+	s.results[id].State = StateWaiting
 	s.mu.Unlock()
 	s.notify(id)
 

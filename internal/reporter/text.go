@@ -58,7 +58,7 @@ func (r *TextReporter) PrintStatus(graph *task.Graph, results map[string]*task.T
 			continue
 		}
 		switch res.State {
-		case task.StateRunning:
+		case task.StateWaiting, task.StateRunning:
 			running = append(running, res)
 		case task.StateCompleted:
 			completed = append(completed, res)
