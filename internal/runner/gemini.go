@@ -53,6 +53,7 @@ func (r *GeminiRunner) Run(ctx context.Context, t *task.Task, repoDir, outputDir
 
 	args := []string{
 		"--approval-mode=yolo",
+		"--sandbox",
 		"--output-format", "stream-json",
 	}
 	if r.model != "" {
