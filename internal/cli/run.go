@@ -586,6 +586,9 @@ func executeRun(cfg execRunConfig) (*execRunResult, error) {
 			execDir = repoDir
 		}
 
+		// update StartedAt to actual execution start (after lock/worktree), not queue time
+		sched.SetStartedAt(t.ID, time.Now())
+
 		// mark task as in_progress in persistent state
 		if cfg.stateTracker != nil {
 			cfg.stateTracker.MarkStarted(t.ID, "")

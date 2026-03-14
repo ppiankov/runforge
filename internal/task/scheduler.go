@@ -147,6 +147,16 @@ func (s *Scheduler) SetRunnerUsed(id, runner string) {
 	s.mu.Unlock()
 }
 
+// SetStartedAt updates the task's StartedAt time. Called by ExecFn after
+// acquiring the repo lock so the TUI shows actual execution time, not lock wait time.
+func (s *Scheduler) SetStartedAt(id string, t time.Time) {
+	s.mu.Lock()
+	if r, ok := s.results[id]; ok {
+		r.StartedAt = t
+	}
+	s.mu.Unlock()
+}
+
 // CancelTask cancels a running task by invoking its per-task context cancel.
 // No-op if the task is not running.
 func (s *Scheduler) CancelTask(id string) {
