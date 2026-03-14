@@ -1074,14 +1074,14 @@ func (m TUIModel) View() string {
 	taskW := int(float64(m.width) * taskWidthRatio)
 	agentW := m.width - taskW
 
-	taskContent := m.renderTaskContent(topH)
+	taskContent := padLines(m.renderTaskContent(topH), taskW-4)
 	taskBorder := panelBorderStyle(m.focusedPanel == panelTasks)
 	taskPanel := taskBorder.
 		Width(taskW - 2).
 		Height(topH - 2).
 		Render(taskContent)
 
-	agentContent := m.renderAgentContent(topH)
+	agentContent := padLines(m.renderAgentContent(topH), agentW-4)
 	agentBorder := panelBorderStyle(m.focusedPanel == panelAgents)
 	agentPanel := agentBorder.
 		Width(agentW - 2).
@@ -1091,7 +1091,7 @@ func (m TUIModel) View() string {
 	topRow := lipgloss.JoinHorizontal(lipgloss.Top, taskPanel, agentPanel)
 
 	// Bottom: log panel (full width)
-	logContent := m.renderLogContent(logH)
+	logContent := padLines(m.renderLogContent(logH), m.width-4)
 	logBorder := panelBorderStyle(m.focusedPanel == panelLogs)
 	logPanel := logBorder.
 		Width(m.width - 2).
@@ -1139,6 +1139,20 @@ func panelBorderStyle(focused bool) lipgloss.Style {
 		return focusedBorderStyle
 	}
 	return dimBorderStyle
+}
+
+// padLines pads every line in the content to exactly targetWidth visible
+// characters. This prevents old frame content from bleeding through when
+// lipgloss miscalculates widths for ANSI-styled strings.
+func padLines(content string, targetWidth int) string {
+	lines := strings.Split(content, "\n")
+	for i, line := range lines {
+		w := lipgloss.Width(line)
+		if w < targetWidth {
+			lines[i] = line + strings.Repeat(" ", targetWidth-w)
+		}
+	}
+	return strings.Join(lines, "\n")
 }
 
 // viewSinglePanel is the original single-panel layout (no log panel).
